@@ -336,7 +336,9 @@ th {
     padding: 15px;
     text-align: left;
     font-size: 12px;
-    color: var(--text-muted);
+    color: #cbd5e1;
+    font-weight: 700;
+    letter-spacing: 0.5px;
     border-bottom: 1px solid var(--glass-border);
 }
 
@@ -649,11 +651,31 @@ input[type="checkbox"] {
     padding: 10px 0;
 }
 
+.hourly-chart-area {
+    display: flex;
+    gap: 4px;
+    height: 120px;
+}
+
+.hourly-yaxis {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-end;
+    width: 22px;
+    flex-shrink: 0;
+    font-size: 9px;
+    color: var(--text-muted);
+    opacity: 0.6;
+    padding: 0 0 2px;
+}
+
 .hourly-chart {
     display: flex;
     align-items: flex-end;
     gap: 3px;
-    height: 120px;
+    flex: 1;
+    height: 100%;
     padding: 0 2px;
 }
 
@@ -710,6 +732,7 @@ input[type="checkbox"] {
     display: flex;
     justify-content: space-between;
     padding: 8px 5px 0;
+    margin-left: 26px;
     font-size: 10px;
     color: var(--text-muted);
 }

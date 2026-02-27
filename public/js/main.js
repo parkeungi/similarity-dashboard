@@ -538,9 +538,19 @@ function renderHourlyChart(data) {
         peakEl.textContent = '피크: 데이터 없음';
     }
 
-    // 바 차트 생성
+    // Y축 라벨 생성
+    const yaxis = document.getElementById('hourly-yaxis');
+    const yMax = maxCount <= 1 ? 4 : Math.ceil(maxCount / 5) * 5;
+    const yStep = Math.max(Math.ceil(yMax / 4), 1);
+    const yLabels = [];
+    for (let i = 4; i >= 0; i--) {
+        yLabels.push(yStep * i);
+    }
+    yaxis.innerHTML = yLabels.map(v => `<span>${v}</span>`).join('');
+
+    // 바 차트 생성 (Y축 최대값 기준)
     const barsHtml = data.hourly.map((cnt, hour) => {
-        const heightPercent = maxCount > 0 ? (cnt / maxCount) * 100 : 0;
+        const heightPercent = yMax > 0 ? (cnt / yMax) * 100 : 0;
         const isPeak = cnt === peakCount && cnt > 0;
         const tooltip = `${String(hour).padStart(2, '0')}:00 - ${cnt}건`;
 

@@ -14,13 +14,13 @@
 
     <div class="header">
         <div class="header-left">
-            <div class="header-brand">
+            <a href="/" class="header-brand" style="text-decoration: none;">
                 <span class="brand-icon">&#9992;</span>
                 <div class="brand-text">
                     <h1>유사호출부호 모니터링</h1>
                     <span class="brand-sub">Similar Callsign Monitoring System</span>
                 </div>
-            </div>
+            </a>
             <nav class="header-nav">
                 <a href="/" class="header-nav-item active">실시간 검출</a>
                 <a href="/admin" class="header-nav-item">보고 이력</a>
@@ -87,7 +87,10 @@
                         <span id="hourly-total" style="font-size: 12px; color: var(--accent-primary);">0건</span>
                     </div>
                     <div class="hourly-chart-container">
-                        <div id="hourly-chart" class="hourly-chart"></div>
+                        <div class="hourly-chart-area">
+                            <div id="hourly-yaxis" class="hourly-yaxis"></div>
+                            <div id="hourly-chart" class="hourly-chart"></div>
+                        </div>
                         <div class="hourly-labels">
                             <span>0</span><span>6</span><span>12</span><span>18</span><span>23</span>
                         </div>
