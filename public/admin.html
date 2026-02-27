@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>유사호출부호 - 관리자</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="loader" class="loader-overlay">
+        <div class="spinner"></div>
+        <div style="margin-top: 20px; font-size: 14px; letter-spacing: 2px;">데이터 로딩중...</div>
+    </div>
+
+    <div class="header">
+        <div class="header-left">
+            <div class="header-brand">
+                <span class="brand-icon">&#9992;</span>
+                <div class="brand-text">
+                    <h1>유사호출부호 모니터링</h1>
+                    <span class="brand-sub">Similar Callsign Monitoring System</span>
+                </div>
+            </div>
+            <nav class="header-nav">
+                <a href="/" class="header-nav-item">실시간 검출</a>
+                <a href="/admin" class="header-nav-item active">보고 이력</a>
+            </nav>
+        </div>
+        <div class="header-right">
+            <div class="system-status">
+                <div class="status-item">
+                    <div id="network-dot" class="blink-dot"></div>
+                    <span id="network-status">연결중...</span>
+                </div>
+                <div class="status-item">UTC <span id="realtime-clock">00:00:00</span></div>
+            </div>
+            <div class="header-contact">한국공항공사 시스템정보부 &#9742; 555</div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div id="main-content" class="content-section full-width active">
+            <!-- 통계 카드 -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-total">0</div>
+                    <div class="stat-label">전체 보고</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-type1" style="color: var(--accent-danger);">0</div>
+                    <div class="stat-label">관제사 오류</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-type2" style="color: var(--accent-warning);">0</div>
+                    <div class="stat-label">조종사 오류</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-type3" style="color: #f97316;">0</div>
+                    <div class="stat-label">복창오류</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-type4" style="color: #a78bfa;">0</div>
+                    <div class="stat-label">무응답/재호출</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-type5" style="color: var(--text-muted);">0</div>
+                    <div class="stat-label">기타</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-today" style="color: var(--accent-secondary);">0</div>
+                    <div class="stat-label">오늘</div>
+                </div>
+                <div class="stat-card" style="cursor: pointer;" onclick="toggleSettings()">
+                    <div class="stat-value" style="font-size: 24px;">⚙</div>
+                    <div class="stat-label">환경설정</div>
+                </div>
+            </div>
+
+            <!-- 환경설정 섹션 -->
+            <div id="settings-section" class="card" style="margin-bottom: 20px; display: none;">
+                <div class="card-header">
+                    <div class="card-title">환경설정 (모든 브라우저에 적용)</div>
+                    <button class="btn btn-ghost btn-sm" onclick="toggleSettings()">닫기</button>
+                </div>
+                <div style="padding: 15px 0;">
+                    <div class="form-group">
+                        <label>표시할 섹터 선택 (체크하지 않으면 전체 표시)</label>
+                        <div id="sector-checkboxes" style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; background: rgba(15,23,42,0.5); padding: 15px; border-radius: 8px;">
+                            <!-- 동적으로 생성됨 -->
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 15px;">
+                        <label>표시할 유사도 등급 (체크하지 않으면 전체 표시)</label>
+                        <div id="similarity-checkboxes" style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; background: rgba(15,23,42,0.5); padding: 15px; border-radius: 8px;">
+                            <label style="display: flex; align-items: center; gap: 5px; padding: 8px 12px; background: rgba(30,41,59,0.5); border-radius: 6px; cursor: pointer;">
+                                <input type="checkbox" class="similarity-checkbox" value="critical">
+                                <span style="color: #f87171; font-weight: 700;">매우높음</span>
+                                <span style="color: var(--text-muted); font-size: 11px;">(SIMILARITY &gt; 2)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px; padding: 8px 12px; background: rgba(30,41,59,0.5); border-radius: 6px; cursor: pointer;">
+                                <input type="checkbox" class="similarity-checkbox" value="caution">
+                                <span style="color: #fbbf24; font-weight: 700;">높음</span>
+                                <span style="color: var(--text-muted); font-size: 11px;">(SIMILARITY &gt; 1)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px; padding: 8px 12px; background: rgba(30,41,59,0.5); border-radius: 6px; cursor: pointer;">
+                                <input type="checkbox" class="similarity-checkbox" value="monitor">
+                                <span style="color: #7dd3fc; font-weight: 700;">보통</span>
+                                <span style="color: var(--text-muted); font-size: 11px;">(SIMILARITY ≤ 1)</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-top: 15px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label>자동 갱신 주기 (초)</label>
+                            <select id="setting-refresh">
+                                <option value="5000">5초</option>
+                                <option value="10000" selected>10초</option>
+                                <option value="30000">30초</option>
+                                <option value="60000">1분</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label>최대 표시 건수</label>
+                            <select id="setting-maxrows">
+                                <option value="50">50건</option>
+                                <option value="100" selected>100건</option>
+                                <option value="200">200건</option>
+                                <option value="500">500건</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="settings-info" style="background: rgba(14, 165, 233, 0.1); padding: 12px; border-radius: 6px; margin-top: 15px; font-size: 12px; color: var(--text-muted); display: none;">
+                        마지막 수정: <span id="settings-updated"></span>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; justify-content: space-between;">
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-primary" onclick="saveSettings()">설정 저장</button>
+                            <button class="btn btn-ghost" onclick="loadSettings()">다시 불러오기</button>
+                        </div>
+                        <a href="/setup" class="btn btn-ghost" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;" target="_blank">
+                            <span style="font-size: 14px;">🖥</span> 클라이언트 도메인 설정
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 필터 섹션 -->
+            <div class="card" style="margin-bottom: 20px;">
+                <div class="filter-section">
+                    <div class="filter-group">
+                        <label>시작일:</label>
+                        <input type="date" id="filter-from">
+                    </div>
+                    <div class="filter-group">
+                        <label>종료일:</label>
+                        <input type="date" id="filter-to">
+                    </div>
+                    <div class="filter-group">
+                        <label>유형:</label>
+                        <select id="filter-type">
+                            <option value="">전체</option>
+                            <option value="1">관제사 오류</option>
+                            <option value="2">조종사 오류</option>
+                            <option value="3">복창오류</option>
+                            <option value="4">무응답/재호출</option>
+                            <option value="5">기타</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>섹터:</label>
+                        <select id="filter-sector">
+                            <option value="ALL">전체</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="applyFilter()">검색</button>
+                    <button class="btn btn-ghost btn-sm" onclick="resetFilter()">초기화</button>
+                    <button class="btn btn-ghost btn-sm" onclick="toggleCharts()" style="margin-left: auto;">통계 차트</button>
+                </div>
+            </div>
+
+            <!-- 통계 차트 섹션 -->
+            <div id="charts-section" class="charts-section" style="display: none;">
+                <div class="charts-grid">
+                    <!-- 섹터별 통계 -->
+                    <div class="card">
+                        <div class="card-header" style="margin-bottom: 15px;">
+                            <div class="card-title" style="margin-bottom: 0;">섹터별 보고 현황</div>
+                        </div>
+                        <div id="sector-chart" class="horizontal-bar-chart">
+                            <!-- 동적 생성 -->
+                        </div>
+                    </div>
+
+                    <!-- 월별 추이 -->
+                    <div class="card">
+                        <div class="card-header" style="margin-bottom: 15px;">
+                            <div class="card-title" style="margin-bottom: 0;">월별 보고 추이 (최근 12개월)</div>
+                        </div>
+                        <div class="monthly-chart-container">
+                            <div id="monthly-chart" class="monthly-chart">
+                                <!-- 동적 생성 -->
+                            </div>
+                            <div id="monthly-labels" class="monthly-labels">
+                                <!-- 동적 생성 -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 오류유형별 통계 -->
+                    <div class="card">
+                        <div class="card-header" style="margin-bottom: 15px;">
+                            <div class="card-title" style="margin-bottom: 0;">오류유형별 분포</div>
+                        </div>
+                        <div id="type-chart" class="horizontal-bar-chart">
+                            <!-- 동적 생성 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 보고서 테이블 -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">보고서 목록 (<span id="report-count">0</span>건)</div>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-ghost btn-sm" onclick="downloadExcel()">Excel 저장</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteSelected()">선택 삭제</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="reports-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px;"><input type="checkbox" onclick="toggleAll(this)"></th>
+                                <th>보고일시</th>
+                                <th>섹터</th>
+                                <th>유사호출부호</th>
+                                <th>보고자</th>
+                                <th>오류유형</th>
+                                <th>안전영향도</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reports-tbody"></tbody>
+                    </table>
+                </div>
+                <div id="callsign-stats-footer" style="padding: 12px 15px; background: rgba(15,23,42,0.5); border-top: 1px solid rgba(255,255,255,0.1); font-size: 13px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center;">
+                    <span id="callsign-stats-info">조회기간: - | 호출부호 데이터: 0건</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <span>&copy; 2025 한국공항공사 시스템정보부 &middot; 유사호출부호 모니터링 시스템 v1.0</span>
+    </footer>
+
+    <!-- 보고서 상세 보기 모달 -->
+    <div id="report-detail-modal" class="modal">
+        <div class="modal-content" style="width: 550px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3 style="font-size: 18px; color: var(--accent-primary);">보고서 상세</h3>
+                <button class="btn btn-ghost btn-sm" onclick="closeDetailModal()">닫기</button>
+            </div>
+            <div id="report-detail-content">
+                <!-- 동적으로 생성됨 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 공통 코드 먼저 로드 (SECTOR_MAP, escapeHtml, updateClock 등) -->
+    <script src="js/common.js"></script>
+    <script src="js/xlsx.full.min.js"></script>
+    <script src="js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>유사호출부호 모니터링 - 초기 설정</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Malgun Gothic', sans-serif;
+            background: linear-gradient(135deg, #0d1117 0%, #1a1f2e 100%);
+            color: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(22, 27, 34, 0.95);
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 650px;
+            width: 100%;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        h1 {
+            color: #0ea5e9;
+            margin-bottom: 10px;
+            font-size: 24px;
+        }
+        .subtitle {
+            color: #94a3b8;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .step {
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-left: 4px solid #0ea5e9;
+        }
+        .step-number {
+            display: inline-block;
+            width: 28px;
+            height: 28px;
+            background: #0ea5e9;
+            color: #fff;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 28px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .step-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        .step-desc {
+            color: #94a3b8;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .btn {
+            display: inline-block;
+            padding: 14px 28px;
+            background: linear-gradient(135deg, #0ea5e9, #0284c7);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            text-decoration: none;
+            margin-top: 10px;
+            transition: all 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(14, 165, 233, 0.3);
+        }
+        .btn:disabled {
+            background: #475569;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .info-box {
+            background: rgba(14, 165, 233, 0.1);
+            border: 1px solid rgba(14, 165, 233, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #7dd3fc;
+        }
+        .domain-display {
+            font-family: 'Consolas', monospace;
+            background: #0f172a;
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+            font-size: 18px;
+            color: #10b981;
+            text-align: center;
+        }
+        .warning {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #f87171;
+        }
+        .warning-yellow {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: #fbbf24;
+        }
+        .buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 25px;
+            flex-wrap: wrap;
+        }
+        code {
+            background: #0f172a;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            color: #10b981;
+        }
+        .ip-input-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin: 15px 0;
+        }
+        .ip-input {
+            flex: 1;
+            padding: 12px 15px;
+            background: #0f172a;
+            border: 2px solid rgba(14, 165, 233, 0.3);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 16px;
+            font-family: 'Consolas', monospace;
+        }
+        .ip-input:focus {
+            outline: none;
+            border-color: #0ea5e9;
+        }
+        .ip-label {
+            color: #94a3b8;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        .success {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: #34d399;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>유사호출부호 모니터링 시스템</h1>
+        <p class="subtitle">초기 설정 - 도메인으로 쉽게 접속하기</p>
+
+        <div id="localhost-warning" class="info-box warning" style="display: none; margin-bottom: 20px;">
+            <strong>주의!</strong> 현재 localhost로 접속하셨습니다.<br>
+            다른 PC에서 접속하려면 <strong>서버의 실제 IP 주소</strong>로 이 페이지에 접속해야 합니다.<br>
+            예: <code>http://192.168.x.x:4000/setup</code>
+        </div>
+
+        <div class="step">
+            <div class="step-title"><span class="step-number">0</span>서버 IP 확인</div>
+            <p class="ip-label">서버 IP 주소 (자동 감지됨, 필요시 수정):</p>
+            <div class="ip-input-group">
+                <input type="text" id="server-ip-input" class="ip-input" placeholder="예: 192.168.1.100">
+                <button class="btn" onclick="validateIP()" style="margin-top: 0;">확인</button>
+            </div>
+            <div id="ip-status"></div>
+        </div>
+
+        <div class="domain-display" id="domain-display">
+            callsign.monitor:4000
+        </div>
+
+        <div class="step">
+            <div class="step-title"><span class="step-number">1</span>설정 파일 다운로드</div>
+            <p class="step-desc">
+                아래 버튼을 클릭하여 설정 파일을 다운로드하세요.
+            </p>
+            <button id="download-btn" class="btn" onclick="downloadSetupScript()">setup_hosts.bat 다운로드</button>
+        </div>
+
+        <div class="step">
+            <div class="step-title"><span class="step-number">2</span>관리자 권한으로 실행</div>
+            <p class="step-desc">
+                다운로드한 파일을 <strong>마우스 오른쪽 클릭</strong> → <strong>"관리자 권한으로 실행"</strong>을 선택하세요.
+            </p>
+        </div>
+
+        <div class="step">
+            <div class="step-title"><span class="step-number">3</span>도메인으로 접속</div>
+            <p class="step-desc">
+                설정 완료 후 아래 주소로 접속할 수 있습니다:
+            </p>
+            <div style="margin-top: 10px;">
+                <code>http://callsign.monitor:4000</code> - 관제사 화면<br>
+                <code>http://callsign.monitor:4000/admin</code> - 관리자 화면
+            </div>
+        </div>
+
+        <div class="info-box warning-yellow">
+            <strong>참고:</strong> 설정은 PC당 한 번만 하면 됩니다. 이미 설정한 PC에서는 바로 도메인으로 접속 가능합니다.
+        </div>
+
+        <div class="buttons">
+            <a href="/" class="btn btn-secondary">관제사 화면으로 이동</a>
+            <a href="/admin" class="btn btn-secondary">관리자 화면으로 이동</a>
+        </div>
+    </div>
+
+    <script>
+        const domainName = 'callsign.monitor';
+        const serverPort = window.location.port || '4000';
+        let currentIP = window.location.hostname;
+
+        // 초기화
+        function init() {
+            const ipInput = document.getElementById('server-ip-input');
+
+            // localhost 또는 127.0.0.1 체크
+            if (currentIP === 'localhost' || currentIP === '127.0.0.1') {
+                document.getElementById('localhost-warning').style.display = 'block';
+                ipInput.value = '';
+                ipInput.placeholder = '서버 IP를 입력하세요 (예: 192.168.1.100)';
+                document.getElementById('download-btn').disabled = true;
+                document.getElementById('ip-status').innerHTML =
+                    '<div class="info-box warning" style="margin-top:10px;">IP 주소를 입력해주세요</div>';
+            } else {
+                ipInput.value = currentIP;
+                validateIP();
+            }
+        }
+
+        // IP 유효성 검사
+        function validateIP() {
+            const ipInput = document.getElementById('server-ip-input');
+            const ip = ipInput.value.trim();
+            const statusDiv = document.getElementById('ip-status');
+            const downloadBtn = document.getElementById('download-btn');
+
+            // IP 형식 검사 (간단한 검사)
+            const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
+
+            if (!ip) {
+                statusDiv.innerHTML = '<div class="info-box warning" style="margin-top:10px;">IP 주소를 입력해주세요</div>';
+                downloadBtn.disabled = true;
+                return false;
+            }
+
+            if (ip === 'localhost' || ip === '127.0.0.1') {
+                statusDiv.innerHTML = '<div class="info-box warning" style="margin-top:10px;">localhost는 사용할 수 없습니다. 실제 IP 주소를 입력하세요.</div>';
+                downloadBtn.disabled = true;
+                return false;
+            }
+
+            if (!ipRegex.test(ip)) {
+                statusDiv.innerHTML = '<div class="info-box warning" style="margin-top:10px;">올바른 IP 형식이 아닙니다 (예: 192.168.1.100)</div>';
+                downloadBtn.disabled = true;
+                return false;
+            }
+
+            // 유효한 IP
+            currentIP = ip;
+            statusDiv.innerHTML = '<div class="info-box success" style="margin-top:10px;">IP 확인됨: <strong>' + ip + '</strong></div>';
+            downloadBtn.disabled = false;
+            return true;
+        }
+
+        // 배치 파일 생성 및 다운로드
+        function downloadSetupScript() {
+            if (!validateIP()) {
+                alert('올바른 서버 IP 주소를 입력해주세요.');
+                return;
+            }
+
+            const serverIP = currentIP;
+
+            const batchContent = `@echo off
+title Similar Callsign Monitor - Domain Setup
+
+echo ============================================
+echo   Similar Callsign Monitor - Setup
+echo ============================================
+echo.
+
+:: Check admin privileges
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] Administrator privileges required.
+    echo.
+    echo Right-click this file and select
+    echo "Run as administrator"
+    echo.
+    pause
+    exit /b 1
+)
+
+set SERVER_IP=${serverIP}
+set DOMAIN_NAME=${domainName}
+set HOSTS_FILE=C:\\Windows\\System32\\drivers\\etc\\hosts
+
+echo Server IP: %SERVER_IP%
+echo Domain:    %DOMAIN_NAME%
+echo.
+
+:: Check if already registered
+findstr /c:"%DOMAIN_NAME%" "%HOSTS_FILE%" >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [INFO] Already configured. Updating...
+
+    :: Remove existing entry and add new one
+    type "%HOSTS_FILE%" | findstr /v "%DOMAIN_NAME%" > "%HOSTS_FILE%.tmp"
+    move /y "%HOSTS_FILE%.tmp" "%HOSTS_FILE%" >nul
+)
+
+:: Add to hosts file
+echo.>> "%HOSTS_FILE%"
+echo # Similar Callsign Monitor>> "%HOSTS_FILE%"
+echo %SERVER_IP%    %DOMAIN_NAME%>> "%HOSTS_FILE%"
+
+echo.
+echo [SUCCESS] Domain setup completed!
+echo.
+echo ============================================
+echo   Access URLs
+echo ============================================
+echo   Controller: http://%DOMAIN_NAME%:${serverPort}
+echo   Admin:      http://%DOMAIN_NAME%:${serverPort}/admin
+echo ============================================
+echo.
+
+:: Flush DNS cache
+ipconfig /flushdns >nul 2>&1
+echo DNS cache flushed.
+echo.
+
+:: Connection test
+echo Testing server connection...
+ping -n 1 %SERVER_IP% >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [OK] Server is reachable.
+) else (
+    echo [WARNING] Cannot reach server. Check network.
+)
+
+echo.
+echo Please refresh your browser.
+echo.
+pause
+`;
+
+            // Blob 생성 및 다운로드
+            const blob = new Blob([batchContent], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'setup_hosts.bat';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // Enter 키로 IP 확인
+        document.addEventListener('DOMContentLoaded', function() {
+            init();
+            document.getElementById('server-ip-input').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    validateIP();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+const oracledb = require('oracledb');
+
+// Oracle 11g Thick mode 초기화
+try {
+    oracledb.initOracleClient({ libDir: 'C:\\instantclient_11_2' });
+} catch (err) {
+    console.error('Oracle Client 초기화 실패:', err);
+}
+
+// 연결 설정 (환경에 맞게 수정하세요)
+const dbConfig = {
+    user: 'YOUR_USERNAME',
+    password: 'YOUR_PASSWORD',
+    connectString: 'localhost:1521/XE'
+};
+
+// 연결 풀 생성
+async function initialize() {
+    try {
+        await oracledb.createPool({
+            ...dbConfig,
+            poolMin: 2,                    // 최소 연결 수
+            poolMax: 10,                   // 최대 연결 수
+            poolIncrement: 1,              // 증가 단위
+            poolTimeout: 60,               // 유휴 연결 해제 시간 (초)
+            poolPingInterval: 60,          // 연결 유효성 검사 주기 (초)
+            queueTimeout: 60000,           // 연결 대기 타임아웃 (ms)
+            stmtCacheSize: 30              // SQL 문 캐시 크기
+        });
+        console.log('Oracle 연결 풀 생성 완료');
+    } catch (err) {
+        console.error('Oracle 연결 풀 생성 실패:', err);
+        throw err;
+    }
+}
+
+// 연결 풀 상태 조회 (모니터링용)
+function getPoolStatus() {
+    try {
+        const pool = oracledb.getPool();
+        return {
+            poolAlias: pool.poolAlias,
+            connectionsOpen: pool.connectionsOpen,
+            connectionsInUse: pool.connectionsInUse,
+            poolMin: pool.poolMin,
+            poolMax: pool.poolMax
+        };
+    } catch (err) {
+        return null;
+    }
+}
+
+// 연결 가져오기
+async function getConnection() {
+    return await oracledb.getConnection();
+}
+
+// 연결 풀 종료
+async function close() {
+    try {
+        await oracledb.getPool().close(0);
+        console.log('Oracle 연결 풀 종료');
+    } catch (err) {
+        console.error('Oracle 연결 풀 종료 실패:', err);
+    }
+}
+
+module.exports = { initialize, getConnection, close, getPoolStatus };

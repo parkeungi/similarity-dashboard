@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Config with sensitive data
+config/database.js
+
+# Settings (generated at runtime)
+config/settings.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temp files
+*.tmp
+*.bak
+
+# Windows reserved names
+nul
+NUL

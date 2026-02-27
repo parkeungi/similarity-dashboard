@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>유사호출부호 모니터링</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="loader" class="loader-overlay">
+        <div class="spinner"></div>
+        <div style="margin-top: 20px; font-family: 'Orbitron', monospace; font-size: 14px; letter-spacing: 2px;">데이터 로딩중...</div>
+    </div>
+
+    <div class="header">
+        <div class="header-left">
+            <div class="header-brand">
+                <span class="brand-icon">&#9992;</span>
+                <div class="brand-text">
+                    <h1>유사호출부호 모니터링</h1>
+                    <span class="brand-sub">Similar Callsign Monitoring System</span>
+                </div>
+            </div>
+            <nav class="header-nav">
+                <a href="/" class="header-nav-item active">실시간 검출</a>
+                <a href="/admin" class="header-nav-item">보고 이력</a>
+            </nav>
+        </div>
+        <div class="header-right">
+            <div class="system-status">
+                <div class="status-item">
+                    <div id="network-dot" class="blink-dot"></div>
+                    <span id="network-status">대기중</span>
+                </div>
+                <div class="status-item">UTC <span id="realtime-clock">00:00:00</span></div>
+            </div>
+            <div class="header-contact">한국공항공사 시스템정보부 &#9742; 555</div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div id="main-content" class="content-section active">
+            <div class="sidebar">
+                <div class="card">
+                    <div class="card-title">섹터 현황</div>
+                    <div id="sector-list"></div>
+                    <button class="btn btn-ghost" style="width: 100%; margin-top: 15px; font-size: 12px;" onclick="filterBySector('ALL')">전체 섹터 보기</button>
+                </div>
+                <div class="card">
+                    <div class="card-title">오늘 검출 현황</div>
+                    <div style="font-size: 12px; line-height: 1.6; margin-bottom: 10px;">
+                        <span style="color: var(--text-muted);">갱신</span> <span id="last-update" style="color: var(--accent-primary);">--:--:--</span>
+                        &nbsp;&middot;&nbsp;
+                        <span style="color: var(--text-muted);">합계</span> <span id="total-alerts" style="color: var(--accent-primary); font-weight: 700;">0</span>
+                        &nbsp;&middot;&nbsp;
+                        <span style="color: var(--text-muted);">고위험</span> <span id="high-risk-count" style="color: var(--accent-danger); font-weight: 700;">0</span>
+                    </div>
+                    <div id="sector-summary" style="font-size: 12px;"></div>
+                </div>
+            </div>
+
+            <div class="main-content">
+                <div class="card" style="padding: 0;">
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width: 22%;">유사호출부호</th>
+                                    <th>항공사</th>
+                                    <th>섹터</th>
+                                    <th>유사도 등급</th>
+                                    <th>오류가능성</th>
+                                    <th>권고사항</th>
+                                    <th style="width: 80px;">보고</th>
+                                </tr>
+                            </thead>
+                            <tbody id="callsign-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-right">
+                <div class="card">
+                    <div class="card-header" style="margin-bottom: 10px;">
+                        <div class="card-title" style="margin-bottom: 0;">시간대별 검출</div>
+                        <span id="hourly-total" style="font-size: 12px; color: var(--accent-primary);">0건</span>
+                    </div>
+                    <div class="hourly-chart-container">
+                        <div id="hourly-chart" class="hourly-chart"></div>
+                        <div class="hourly-labels">
+                            <span>0</span><span>6</span><span>12</span><span>18</span><span>23</span>
+                        </div>
+                    </div>
+                    <div id="hourly-peak" style="padding: 8px 0 0; font-size: 11px; color: var(--text-muted); text-align: center;">
+                        피크 시간대: -
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 오류 보고 모달 -->
+    <div id="reportModal" class="modal">
+        <div class="modal-content" style="padding: 20px; max-width: 520px;">
+            <div class="card-title" style="color: var(--accent-danger); margin-bottom: 12px; font-size: 13px;">유사호출부호 오류 보고</div>
+
+            <input type="hidden" id="reportIdx">
+
+            <!-- 검출 정보 표시 -->
+            <div id="detectionInfo" style="background: rgba(15, 23, 42, 0.5); border: 1px solid var(--glass-border); border-radius: 6px; padding: 10px; margin-bottom: 12px; display: none;">
+                <div style="font-size: 11px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">검출 정보</div>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 3px 8px; font-size: 11px; color: var(--text-muted); width: 30%;">호출부호</td>
+                        <td id="det-callsign" style="padding: 3px 8px; font-size: 12px; font-weight: bold; color: var(--accent-primary);"></td>
+                        <td style="padding: 3px 8px; font-size: 11px; color: var(--text-muted); width: 20%;">항공사</td>
+                        <td id="det-airline" style="padding: 3px 8px; font-size: 12px;"></td>
+                    </tr>
+                    <tr style="background: rgba(255,255,255,0.03);">
+                        <td style="padding: 3px 8px; font-size: 11px; color: var(--text-muted);">섹터</td>
+                        <td id="det-sector" style="padding: 3px 8px; font-size: 12px;"></td>
+                        <td style="padding: 3px 8px; font-size: 11px; color: var(--text-muted);">유사도</td>
+                        <td id="det-similarity" style="padding: 3px 8px;"></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 3px 8px; font-size: 11px; color: var(--text-muted);">오류가능성</td>
+                        <td id="det-risk" style="padding: 3px 8px;"></td>
+                        <td style="padding: 3px 8px; font-size: 11px; color: var(--text-muted);">권고</td>
+                        <td id="det-action" style="padding: 3px 8px;"></td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="form-row" style="margin-bottom: 8px;">
+                <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                    <label>발생 일시 <span style="color: var(--accent-danger);">*</span></label>
+                    <input type="datetime-local" id="reportDateTime" style="padding: 8px;">
+                </div>
+                <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                    <label>유사호출부호 <span style="color: var(--accent-danger);">*</span></label>
+                    <input type="text" id="reportCallsign" readonly style="background: rgba(0,0,0,0.3); padding: 8px;">
+                </div>
+            </div>
+
+            <div class="form-row" style="margin-bottom: 8px;">
+                <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                    <label>오류 항공기 <span style="color: var(--accent-danger);">*</span></label>
+                    <select id="reportAO" style="padding: 8px;">
+                        <option value="">선택하세요</option>
+                        <option value="1">FP1 (첫번째 항공기)</option>
+                        <option value="2">FP2 (두번째 항공기)</option>
+                        <option value="3">양쪽 모두</option>
+                    </select>
+                </div>
+                <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                    <label>오류 유형 <span style="color: var(--accent-danger);">*</span></label>
+                    <select id="reportType" style="padding: 8px;">
+                        <option value="">선택하세요</option>
+                        <option value="1">관제사 오류</option>
+                        <option value="2">조종사 오류</option>
+                        <option value="3">복창오류</option>
+                        <option value="4">무응답/재호출</option>
+                        <option value="5">기타</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row" style="margin-bottom: 8px;">
+                <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                    <label>안전 영향도 <span style="color: var(--accent-danger);">*</span></label>
+                    <select id="safetyImpact" style="padding: 8px;">
+                        <option value="">선택하세요</option>
+                        <option value="1">경미</option>
+                        <option value="2">보통</option>
+                        <option value="3">심각</option>
+                    </select>
+                </div>
+                <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                    <label>보고자 <span style="color: var(--accent-danger);">*</span></label>
+                    <div id="reporterWrapper">
+                        <select id="reporterSelect" style="padding: 8px; width: 100%;">
+                            <option value="">로딩중...</option>
+                        </select>
+                        <input type="text" id="reporterInput" placeholder="이름 입력" maxlength="10" style="padding: 8px; display: none; width: 100%;">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 8px;">
+                <label>비고 (선택사항)</label>
+                <textarea id="reportRemark" placeholder="추가 설명 (최대 200자)" maxlength="200" style="min-height: 50px; padding: 8px;"></textarea>
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button class="btn btn-ghost" style="flex: 1; padding: 10px;" onclick="closeModal()">취소</button>
+                <button class="btn btn-primary" style="flex: 1; padding: 10px;" onclick="submitReport()">보고 제출</button>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <span>&copy; 2025 한국공항공사 시스템정보부 &middot; 유사호출부호 모니터링 시스템 v1.0</span>
+    </footer>
+
+    <!-- 공통 코드 먼저 로드 (SECTOR_MAP, escapeHtml, updateClock 등) -->
+    <script src="js/common.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

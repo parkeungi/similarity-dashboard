@@ -1,0 +1,13 @@
+{
+  "name": "similar-callsign-monitor",
+  "version": "1.0.0",
+  "description": "유사호출부호 실시간 모니터링 시스템",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "oracledb": "^6.0.0"
+  }
+}
