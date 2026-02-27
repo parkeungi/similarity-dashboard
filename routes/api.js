@@ -104,6 +104,7 @@ router.get('/callsigns', async (req, res) => {
         // 유사도 필터 조건 생성
         const similarityFilter = buildSimilarityFilter(settings.displaySimilarity);
 
+        // 명시적 컬럼 목록 (RNUM 등 내부용 컬럼 제외)
         let sql = `
             SELECT IDX, DETECTED, CLEARED, CCP,
                    FP1_CALLSIGN, FP1_DEPT, FP1_DEST, FP1_EOBT, FP1_FID, FP1_ALT,

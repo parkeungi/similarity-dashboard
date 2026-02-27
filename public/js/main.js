@@ -127,6 +127,41 @@ function getAction(similarity, scorePeak) {
     return { text: '정상감시', tag: 'tag-info' };
 }
 
+/**
+ * 위험도 종합 평가 (테이블 렌더링 및 상세 보기에서 공통 사용)
+ * @description 유사호출부호 데이터의 위험도 등급, 오류가능성, 권고사항을 일괄 계산
+ * @param {Object} data - 유사호출부호 데이터 객체
+ * @returns {Object} 평가 결과 { riskClass, similarity, risk, action, airlineText }
+ * @example
+ * const assessment = calculateRiskAssessment(callsignData);
+ * // { riskClass: 'high-risk', similarity: { text: '매우높음', tag: 'tag-danger' }, ... }
+ */
+function calculateRiskAssessment(data) {
+    // TR 행 CSS 클래스 (고위험/중위험 강조)
+    let riskClass = '';
+    if (data.SIMILARITY > 2) {
+        riskClass = 'high-risk';
+    } else if (data.SIMILARITY > 1) {
+        riskClass = 'med-risk';
+    }
+
+    // 유사도 등급
+    const similarity = getSimilarityLevel(data.SIMILARITY);
+
+    // 오류가능성 등급
+    const risk = getRiskLevel(data.SCORE_PEAK || 0);
+
+    // 권고사항
+    const action = getAction(data.SIMILARITY, data.SCORE_PEAK || 0);
+
+    // 항공사명 (두 호출부호의 접두어가 같으면 하나만, 다르면 둘 다 표시)
+    const airline1 = getAirlineName(data.FP1_CALLSIGN);
+    const airline2 = getAirlineName(data.FP2_CALLSIGN);
+    const airlineText = airline1 === airline2 ? airline1 : `${airline1} / ${airline2}`;
+
+    return { riskClass, similarity, risk, action, airlineText };
+}
+
 // ==================== 보고자 관리 ====================
 
 /**
@@ -333,7 +368,11 @@ function renderSectors() {
     document.getElementById('sector-summary').innerHTML = summaryHtml;
 }
 
-// 테이블 렌더링
+/**
+ * 테이블 렌더링
+ * @description GLOBAL_DATA를 기반으로 유사호출부호 목록 테이블 생성
+ *              공통 평가 함수(calculateRiskAssessment) 사용으로 중복 로직 제거
+ */
 function renderTable() {
     const tbody = document.getElementById('callsign-tbody');
 
@@ -343,21 +382,14 @@ function renderTable() {
     }
 
     const html = GLOBAL_DATA.slice(0, SERVER_CONFIG.maxRows).map(d => {
-        const risk = d.SIMILARITY > 2 ? 'high-risk' : (d.SIMILARITY > 1 ? 'med-risk' : '');
-        const sim = getSimilarityLevel(d.SIMILARITY);
-        const rsk = getRiskLevel(d.SCORE_PEAK || 0);
-        const act = getAction(d.SIMILARITY, d.SCORE_PEAK || 0);
-
-        // 항공사: 두 호출부호의 접두어가 같으면 하나만, 다르면 둘 다 표시
-        const airline1 = getAirlineName(d.FP1_CALLSIGN);
-        const airline2 = getAirlineName(d.FP2_CALLSIGN);
-        const airlineText = airline1 === airline2 ? airline1 : `${airline1} / ${airline2}`;
+        // 위험도 종합 평가 (공통 함수 사용)
+        const assessment = calculateRiskAssessment(d);
 
         const fp1 = escapeHtml(d.FP1_CALLSIGN);
         const fp2 = escapeHtml(d.FP2_CALLSIGN);
 
         return `
-            <tr class="${risk}" style="cursor: pointer;" onclick="openReportModal(${d.IDX}, '${fp1}', '${fp2}')">
+            <tr class="${assessment.riskClass}" data-idx="${d.IDX}">
                 <td>
                     <div class="callsign-box">
                         <span class="callsign-main">${fp1 || '-'}</span>
@@ -365,11 +397,11 @@ function renderTable() {
                         <span class="callsign-main">${fp2 || '-'}</span>
                     </div>
                 </td>
-                <td>${escapeHtml(airlineText)}</td>
+                <td>${escapeHtml(assessment.airlineText)}</td>
                 <td><span style="color: var(--accent-primary)">${escapeHtml(getSectorName(d.CCP))}</span></td>
-                <td><span class="tag ${sim.tag}">${sim.text}</span></td>
-                <td><span class="tag ${rsk.tag}">${rsk.text}</span></td>
-                <td><span class="tag ${act.tag}">${act.text}</span></td>
+                <td><span class="tag ${assessment.similarity.tag}">${assessment.similarity.text}</span></td>
+                <td><span class="tag ${assessment.risk.tag}">${assessment.risk.text}</span></td>
+                <td><span class="tag ${assessment.action.tag}">${assessment.action.text}</span></td>
                 <td>
                     <button class="btn btn-sm btn-primary" style="white-space: nowrap;">보고</button>
                 </td>
@@ -388,18 +420,34 @@ function filterBySector(sector) {
     loadSectors();
 }
 
-// 보고 모달 열기
+/**
+ * 보고 모달 열기
+ * @param {number} idx - 유사호출부호 IDX
+ * @param {string} fp1 - 첫 번째 호출부호 (선택사항, 없으면 GLOBAL_DATA에서 조회)
+ * @param {string} fp2 - 두 번째 호출부호 (선택사항, 없으면 GLOBAL_DATA에서 조회)
+ */
 function openReportModal(idx, fp1, fp2) {
+    // IDX로 데이터 조회 (fp1, fp2가 없는 경우 대비)
+    const item = GLOBAL_DATA.find(d => d.IDX === idx);
+    if (!item) {
+        console.error('해당 IDX의 데이터를 찾을 수 없습니다:', idx);
+        return;
+    }
+
+    // 호출부호 설정 (인자가 없으면 item에서 추출)
+    const callsign1 = fp1 || item.FP1_CALLSIGN;
+    const callsign2 = fp2 || item.FP2_CALLSIGN;
+
     document.getElementById('reportIdx').value = idx;
-    document.getElementById('reportCallsign').value = `${fp1} | ${fp2}`;
+    document.getElementById('reportCallsign').value = `${callsign1} | ${callsign2}`;
     document.getElementById('reportDateTime').value = new Date().toISOString().slice(0, 16);
 
     // 오류 항공기 드롭다운에 실제 호출부호 표시
     const aoSelect = document.getElementById('reportAO');
     aoSelect.innerHTML = `
         <option value="">선택하세요</option>
-        <option value="1">${escapeHtml(fp1)}</option>
-        <option value="2">${escapeHtml(fp2)}</option>
+        <option value="1">${escapeHtml(callsign1)}</option>
+        <option value="2">${escapeHtml(callsign2)}</option>
         <option value="3">양쪽 모두</option>
     `;
     aoSelect.value = '';
@@ -411,27 +459,17 @@ function openReportModal(idx, fp1, fp2) {
     renderReporterSelect();
     document.getElementById('reporterInput').value = '';
 
-    // 검출 정보 표시
-    const item = GLOBAL_DATA.find(d => d.IDX === idx);
+    // 검출 정보 표시 (공통 평가 함수 사용)
     const detInfo = document.getElementById('detectionInfo');
-    if (item) {
-        const airline1 = getAirlineName(item.FP1_CALLSIGN);
-        const airline2 = getAirlineName(item.FP2_CALLSIGN);
-        const airlineText = airline1 === airline2 ? airline1 : `${airline1} / ${airline2}`;
-        const sim = getSimilarityLevel(item.SIMILARITY);
-        const rsk = getRiskLevel(item.SCORE_PEAK || 0);
-        const act = getAction(item.SIMILARITY, item.SCORE_PEAK || 0);
+    const assessment = calculateRiskAssessment(item);
 
-        document.getElementById('det-callsign').textContent = `${item.FP1_CALLSIGN} | ${item.FP2_CALLSIGN}`;
-        document.getElementById('det-airline').textContent = airlineText;
-        document.getElementById('det-sector').textContent = getSectorName(item.CCP);
-        document.getElementById('det-similarity').innerHTML = `<span class="tag ${sim.tag}">${sim.text}</span>`;
-        document.getElementById('det-risk').innerHTML = `<span class="tag ${rsk.tag}">${rsk.text}</span>`;
-        document.getElementById('det-action').innerHTML = `<span class="tag ${act.tag}">${act.text}</span>`;
-        detInfo.style.display = 'block';
-    } else {
-        detInfo.style.display = 'none';
-    }
+    document.getElementById('det-callsign').textContent = `${item.FP1_CALLSIGN} | ${item.FP2_CALLSIGN}`;
+    document.getElementById('det-airline').textContent = assessment.airlineText;
+    document.getElementById('det-sector').textContent = getSectorName(item.CCP);
+    document.getElementById('det-similarity').innerHTML = `<span class="tag ${assessment.similarity.tag}">${assessment.similarity.text}</span>`;
+    document.getElementById('det-risk').innerHTML = `<span class="tag ${assessment.risk.tag}">${assessment.risk.text}</span>`;
+    document.getElementById('det-action').innerHTML = `<span class="tag ${assessment.action.tag}">${assessment.action.text}</span>`;
+    detInfo.style.display = 'block';
 
     document.getElementById('reportModal').classList.add('active');
 }
@@ -487,6 +525,123 @@ async function submitReport() {
     } catch (err) {
         console.error('보고서 저장 실패:', err);
         alert('보고 제출 실패: ' + err.message);
+    }
+}
+
+// ==================== Excel 내보내기 ====================
+
+/**
+ * 전체 데이터 Excel 내보내기
+ * @description 현재 화면에 표시된 필터링된 데이터를 Excel 파일로 내보내기
+ *              SheetJS 라이브러리 사용 (폐쇄망 환경 대응)
+ */
+async function exportToExcel() {
+    try {
+        // SheetJS 라이브러리 확인
+        if (typeof XLSX === 'undefined') {
+            alert('Excel 내보내기 라이브러리를 불러올 수 없습니다.');
+            return;
+        }
+
+        if (GLOBAL_DATA.length === 0) {
+            alert('내보낼 데이터가 없습니다.');
+            return;
+        }
+
+        // 전체 데이터를 서버에서 다시 조회 (화면 표시 제한 없이)
+        let fullData = [];
+
+        // 현재 필터 조건으로 전체 데이터 조회
+        let url;
+        if (currentSector === 'ALL') {
+            const activeSectors = SERVER_CONFIG.displaySectors.length > 0
+                ? SERVER_CONFIG.displaySectors
+                : FIXED_SECTORS;
+            url = `/api/callsigns?sectors=${activeSectors.join(',')}`;
+        } else {
+            url = `/api/callsigns?sector=${currentSector}`;
+        }
+
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const result = await response.json();
+
+        if (result.success) {
+            fullData = filterBySimilarity(result.data);
+        } else {
+            throw new Error(result.error);
+        }
+
+        // Excel 데이터 생성 (한글 헤더 + 사람이 읽기 쉬운 형식)
+        const excelData = fullData.map(d => {
+            const assessment = calculateRiskAssessment(d);
+
+            return {
+                '검출시각': d.DETECTED || '-',
+                '섹터': getSectorName(d.CCP),
+                '호출부호1': d.FP1_CALLSIGN || '-',
+                '호출부호2': d.FP2_CALLSIGN || '-',
+                '항공사': assessment.airlineText,
+                '출발1': d.FP1_DEPT || '-',
+                '도착1': d.FP1_DEST || '-',
+                '출발2': d.FP2_DEPT || '-',
+                '도착2': d.FP2_DEST || '-',
+                '유사도점수': d.SIMILARITY || 0,
+                '유사도등급': assessment.similarity.text,
+                '오류가능성점수': d.SCORE_PEAK || 0,
+                '오류가능성등급': assessment.risk.text,
+                '권고사항': assessment.action.text,
+                '매칭위치': d.MATCH_POS || '-',
+                '매칭길이': d.MATCH_LEN || '-',
+                '비고': d.MARK || '-'
+            };
+        });
+
+        // 워크북 생성
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(excelData);
+
+        // 컬럼 너비 자동 조정
+        const colWidths = [
+            { wch: 18 }, // 검출시각
+            { wch: 10 }, // 섹터
+            { wch: 12 }, // 호출부호1
+            { wch: 12 }, // 호출부호2
+            { wch: 15 }, // 항공사
+            { wch: 8 },  // 출발1
+            { wch: 8 },  // 도착1
+            { wch: 8 },  // 출발2
+            { wch: 8 },  // 도착2
+            { wch: 10 }, // 유사도점수
+            { wch: 12 }, // 유사도등급
+            { wch: 12 }, // 오류가능성점수
+            { wch: 12 }, // 오류가능성등급
+            { wch: 12 }, // 권고사항
+            { wch: 10 }, // 매칭위치
+            { wch: 10 }, // 매칭길이
+            { wch: 20 }  // 비고
+        ];
+        ws['!cols'] = colWidths;
+
+        // 워크시트 추가
+        XLSX.utils.book_append_sheet(wb, ws, '유사호출부호');
+
+        // 파일명 생성 (날짜 + 시간 + 섹터)
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const timeStr = now.toTimeString().slice(0, 5).replace(/:/g, '');
+        const sectorStr = currentSector === 'ALL' ? '전체섹터' : getSectorName(currentSector);
+        const filename = `유사호출부호_${sectorStr}_${dateStr}_${timeStr}.xlsx`;
+
+        // 파일 다운로드
+        XLSX.writeFile(wb, filename);
+
+        console.log(`Excel 내보내기 완료: ${fullData.length}건`);
+    } catch (err) {
+        console.error('Excel 내보내기 실패:', err);
+        alert('Excel 내보내기 실패: ' + err.message);
     }
 }
 
@@ -598,7 +753,11 @@ function startAutoRefresh() {
     console.log(`자동 갱신 시작: ${currentRefreshRate}ms 주기`);
 }
 
-// 초기화
+/**
+ * 초기화
+ * @description 페이지 로드 시 실행되는 초기 설정 함수
+ *              - 서버 설정 로드, 데이터 로드, 이벤트 리스너 등록
+ */
 async function init() {
     try {
         // 서버 설정 먼저 로드 (관리자 설정 적용)
@@ -608,6 +767,17 @@ async function init() {
         await loadSectors();
         await loadReporters();
         await loadHourlyStats();
+
+        // ===== 이벤트 위임: 테이블 행 클릭 이벤트 =====
+        // 각 행마다 onclick 속성 대신 tbody에 하나의 리스너만 등록 (메모리 효율적)
+        document.getElementById('callsign-tbody').addEventListener('click', function(e) {
+            // 클릭된 요소에서 가장 가까운 TR 찾기
+            const tr = e.target.closest('tr');
+            if (!tr || !tr.dataset.idx) return; // data-idx 없으면 무시 (빈 상태 행)
+
+            const idx = parseInt(tr.dataset.idx, 10);
+            openReportModal(idx);
+        });
 
         // 보고자 드롭다운 change 이벤트
         document.getElementById('reporterSelect').addEventListener('change', function() {

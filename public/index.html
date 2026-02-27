@@ -23,6 +23,7 @@
             </a>
             <nav class="header-nav">
                 <a href="/" class="header-nav-item active">실시간 검출</a>
+                <a href="/history" class="header-nav-item">검출 이력</a>
                 <a href="/admin" class="header-nav-item">보고 이력</a>
             </nav>
         </div>
@@ -61,6 +62,12 @@
 
             <div class="main-content">
                 <div class="card" style="padding: 0;">
+                    <div style="padding: 12px 20px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center;">
+                        <div class="card-title" style="margin: 0; font-size: 14px;">실시간 유사호출부호 목록</div>
+                        <button class="btn btn-ghost" style="padding: 6px 12px; font-size: 12px;" onclick="exportToExcel()">
+                            <span style="margin-right: 4px;">📊</span> Excel 내보내기
+                        </button>
+                    </div>
                     <div class="table-container">
                         <table>
                             <thead>
@@ -206,6 +213,8 @@
         <span>&copy; 2025 한국공항공사 시스템정보부 &middot; 유사호출부호 모니터링 시스템 v1.0</span>
     </footer>
 
+    <!-- SheetJS 라이브러리 (Excel 내보내기용) -->
+    <script src="js/xlsx.full.min.js"></script>
     <!-- 공통 코드 먼저 로드 (SECTOR_MAP, escapeHtml, updateClock 등) -->
     <script src="js/common.js"></script>
     <script src="js/main.js"></script>

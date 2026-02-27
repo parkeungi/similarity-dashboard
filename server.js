@@ -101,6 +101,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // API 라우터 (Rate Limiting 적용)
 app.use('/api/admin', adminLimiter, require('./routes/admin'));
+app.use('/api/history', apiLimiter, require('./routes/history'));
 app.use('/api', apiLimiter, require('./routes/api'));
 
 // 기본 라우트
@@ -110,6 +111,10 @@ app.get('/', (req, res) => {
 
 app.get('/admin', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+app.get('/history', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'history.html'));
 });
 
 // 초기 설정 페이지 (도메인 설정 안내)
@@ -127,6 +132,7 @@ async function startServer() {
             console.log('='.repeat(50));
             console.log(`  관제사 화면: http://callsign.monitor:${PORT}`);
             console.log(`  관리자 화면: http://callsign.monitor:${PORT}/admin`);
+            console.log(`  검출 이력:   http://callsign.monitor:${PORT}/history`);
             console.log(`  초기 설정:   http://callsign.monitor:${PORT}/setup`);
             console.log('='.repeat(50));
         });
