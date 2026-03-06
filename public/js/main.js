@@ -633,18 +633,6 @@ async function openReportModal(idx, fp1, fp2) {
         }
     }
 
-    // 검출 정보 표시 (공통 평가 함수 사용)
-    const detInfo = document.getElementById('detectionInfo');
-    const assessment = calculateRiskAssessment(item);
-
-    document.getElementById('det-callsign').textContent = `${item.FP1_CALLSIGN} | ${item.FP2_CALLSIGN}`;
-    document.getElementById('det-airline').textContent = assessment.airlineText;
-    document.getElementById('det-sector').textContent = getSectorName(item.CCP);
-    document.getElementById('det-similarity').innerHTML = `<span class="tag ${assessment.similarity.tag}">${assessment.similarity.text}</span>`;
-    document.getElementById('det-risk').innerHTML = `<span class="tag ${assessment.risk.tag}">${assessment.risk.text}</span>`;
-    document.getElementById('det-action').innerHTML = `<span class="tag ${assessment.action.tag}">${assessment.action.text}</span>`;
-    detInfo.style.display = 'block';
-
     document.getElementById('reportModal').classList.add('active');
 }
 

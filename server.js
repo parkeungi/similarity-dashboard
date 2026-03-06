@@ -137,10 +137,10 @@ async function startServer() {
             console.log('='.repeat(50));
             console.log('  유사호출부호 모니터링 시스템 시작');
             console.log('='.repeat(50));
-            console.log(`  관제사 화면: http://callsign.monitor:${PORT}`);
-            console.log(`  관리자 화면: http://callsign.monitor:${PORT}/admin`);
-            console.log(`  검출 이력:   http://callsign.monitor:${PORT}/history`);
-            console.log(`  초기 설정:   http://callsign.monitor:${PORT}/setup`);
+            console.log(`  관제사 화면: http://localhost:${PORT}`);
+            console.log(`  관리자 화면: http://localhost:${PORT}/admin`);
+            console.log(`  검출 이력:   http://localhost:${PORT}/history`);
+            console.log(`  초기 설정:   http://localhost:${PORT}/setup`);
             console.log('='.repeat(50));
         });
     } catch (err) {

@@ -367,13 +367,6 @@ function downloadExcel() {
 
     // 데이터 가공 (T_SIMILAR_CALLSIGN_PAIR + T_SIMILAR_CALLSIGN_PAIR_REPORT JOIN 전체)
     const excelData = REPORTS_DATA.map(r => ({
-        '보고일시': r.REPORTED || '',
-        '보고자': r.REPORTER || '',
-        '오류유형': TYPE_MAP[r.TYPE] || String(r.TYPE || ''),
-        '세부오류유형': IMPACT_MAP[r.TYPE_DETAIL] || String(r.TYPE_DETAIL || ''),
-        '오류항공기': AO_MAP[r.AO] || '',
-        '비고': r.REMARK || '',
-        '섹터': getSectorName(r.CCP),
         '검출시각': r.DETECTED || '',
         '해제시각': r.CLEARED === '9999-12-31 23:59:59' ? '활성' : (r.CLEARED || ''),
         'FP1_호출부호': r.FP1_CALLSIGN || '',
@@ -391,7 +384,14 @@ function downloadExcel() {
         '유사도': r.SIMILARITY ?? '',
         '오류가능성': r.SCORE_PEAK ?? '',
         '관제피크': r.CTRL_PEAK ?? '',
-        '비교율': r.COMP_RAT ?? ''
+        '비교율': r.COMP_RAT ?? '',
+        '섹터': getSectorName(r.CCP),
+        '보고일시': r.REPORTED || '',
+        '보고자': r.REPORTER || '',
+        '오류유형': TYPE_MAP[r.TYPE] || String(r.TYPE || ''),
+        '세부오류유형': IMPACT_MAP[r.TYPE_DETAIL] || String(r.TYPE_DETAIL || ''),
+        '오류항공기': AO_MAP[r.AO] || '',
+        '비고': r.REMARK || ''
     }));
 
     // SheetJS로 Excel 생성
@@ -401,11 +401,11 @@ function downloadExcel() {
 
     // 컬럼 너비 설정
     ws['!cols'] = [
-        { wch: 20 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 30 },
-        { wch: 8 }, { wch: 20 }, { wch: 12 },
+        { wch: 20 }, { wch: 12 },
         { wch: 12 }, { wch: 6 }, { wch: 6 }, { wch: 12 }, { wch: 10 }, { wch: 6 },
         { wch: 12 }, { wch: 6 }, { wch: 6 }, { wch: 12 }, { wch: 10 }, { wch: 6 },
-        { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 8 }
+        { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 8 },
+        { wch: 8 }, { wch: 20 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 30 }
     ];
 
     // 파일명 생성
