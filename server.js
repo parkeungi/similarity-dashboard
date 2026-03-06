@@ -39,12 +39,13 @@ function createRateLimiter(options = {}) {
     const windowMs = options.windowMs || 60000;  // 기본 1분
     const max = options.max || 100;              // 기본 100회
     const message = options.message || '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.';
+    const prefix = options.prefix || 'default';  // 리미터별 키 분리
 
     // 정리 interval 시작 (최초 1회만)
     startRateLimitCleanup(windowMs);
 
     return (req, res, next) => {
-        const key = req.ip || req.connection.remoteAddress;
+        const key = prefix + ':' + (req.ip || req.connection.remoteAddress);
         const now = Date.now();
 
         let record = rateLimitStore.get(key);
@@ -73,6 +74,7 @@ function createRateLimiter(options = {}) {
 const apiLimiter = createRateLimiter({
     windowMs: 60000,
     max: 100,
+    prefix: 'api',
     message: 'API 요청이 너무 많습니다. 1분 후 다시 시도해주세요.'
 });
 
@@ -80,6 +82,7 @@ const apiLimiter = createRateLimiter({
 const adminLimiter = createRateLimiter({
     windowMs: 60000,
     max: 60,
+    prefix: 'admin',
     message: '관리자 API 요청이 너무 많습니다. 1분 후 다시 시도해주세요.'
 });
 
@@ -123,10 +126,13 @@ app.get('/setup', (req, res) => {
 });
 
 // 서버 시작
+/** @type {import('http').Server|null} */
+let httpServer = null;
+
 async function startServer() {
     try {
         await db.initialize();
-        app.listen(PORT, () => {
+        httpServer = app.listen(PORT, () => {
             console.log('='.repeat(50));
             console.log('  유사호출부호 모니터링 시스템 시작');
             console.log('='.repeat(50));
@@ -143,11 +149,24 @@ async function startServer() {
 }
 
 // 종료 처리
+/** @param {string} signal - 수신된 시그널 (SIGINT, SIGTERM) */
 async function gracefulShutdown(signal) {
     console.log(`\n${signal} 수신, 서버 종료 중...`);
-    stopRateLimitCleanup(); // Rate Limit 정리 interval 중지
-    await db.close();
-    process.exit(0);
+    stopRateLimitCleanup();
+    if (httpServer) {
+        httpServer.close(async () => {
+            await db.close();
+            process.exit(0);
+        });
+        // 10초 안에 종료되지 않으면 강제 종료
+        setTimeout(() => {
+            console.error('정상 종료 시간 초과, 강제 종료');
+            process.exit(1);
+        }, 10000);
+    } else {
+        await db.close();
+        process.exit(0);
+    }
 }
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));

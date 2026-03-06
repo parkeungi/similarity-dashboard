@@ -63,10 +63,10 @@ let chartRendered = false;
  */
 async function init() {
     try {
-        // 기본 날짜 필터: 오늘 ~ 오늘
-        const today = new Date().toISOString().split('T')[0];
-        document.getElementById('filter-from').value = today;
-        document.getElementById('filter-to').value = today;
+        // 설정값(섹터맵/위험도 기준) 선반영
+        await loadViewConfig();
+
+        setDatePreset('today');
 
         // 섹터 드롭다운 구성 (고정 섹터 목록 기반)
         loadSectorOptions();
@@ -92,6 +92,26 @@ async function init() {
         // 성공/실패 여부와 무관하게 로더 숨김
         const loader = document.getElementById('loader');
         if (loader) loader.style.display = 'none';
+    }
+}
+
+/**
+ * 화면 설정 로드 (섹터맵/위험도 기준)
+ * @returns {Promise<void>}
+ */
+async function loadViewConfig() {
+    try {
+        const response = await fetch('/api/config');
+        if (!response.ok) return;
+        const result = await response.json();
+        if (!result.success || !result.data) return;
+
+        if (result.data.sectorMap && Object.keys(result.data.sectorMap).length > 0) {
+            updateSectorConfig(result.data.sectorMap, result.data.fixedSectors || []);
+        }
+        updateRiskThresholds(result.data.thresholds || getRiskThresholds());
+    } catch (err) {
+        console.error('화면 설정 로드 실패:', err);
     }
 }
 
@@ -264,6 +284,51 @@ function renderStats() {
 // ==================== 테이블 렌더링 ====================
 
 /**
+ * 유사도 값에 대한 표시 정보
+ * @param {number} similarity
+ * @returns {{rowClass: string, tagHtml: string}}
+ */
+function getSimilarityDisplay(similarity) {
+    const band = getSimilarityBand(similarity);
+    if (band === 'critical') {
+        return { rowClass: 'high-risk', tagHtml: '<span class="tag tag-danger">매우높음</span>' };
+    }
+    if (band === 'caution') {
+        return { rowClass: 'med-risk', tagHtml: '<span class="tag tag-warning">높음</span>' };
+    }
+    return { rowClass: '', tagHtml: '<span class="tag tag-info">보통</span>' };
+}
+
+/**
+ * 오류가능성 값에 대한 표시 태그
+ * @param {number} scoreVal
+ * @returns {string}
+ */
+function getScoreTag(scoreVal) {
+    const band = getScoreBand(scoreVal);
+    if (band === 'critical') return `<span class="tag tag-danger">${scoreVal}%</span>`;
+    if (band === 'caution') return `<span class="tag tag-warning">${scoreVal}%</span>`;
+    return `<span class="tag tag-info">${scoreVal}%</span>`;
+}
+
+/**
+ * 권고사항 HTML 생성
+ * @param {number} similarity
+ * @param {number} scoreVal
+ * @returns {string}
+ */
+function getRecommendationHtml(similarity, scoreVal) {
+    const band = getRecommendationBand(similarity, scoreVal);
+    if (band === 'critical') {
+        return '<span style="color: var(--accent-danger); font-weight:700;">즉시조치</span>';
+    }
+    if (band === 'caution') {
+        return '<span style="color: var(--accent-warning);">주의관찰</span>';
+    }
+    return '<span style="color: var(--text-muted);">정상감시</span>';
+}
+
+/**
  * 검출 이력 테이블 렌더링
  *
  * @description HISTORY_DATA를 HTML 테이블 행으로 변환.
@@ -289,29 +354,16 @@ function renderTable() {
         const isActive = d.CLEARED === '9999-12-31 23:59:59';
 
         // 위험도 등급 (SIMILARITY 기준) - 행 배경색 적용용
-        const riskClass = d.SIMILARITY > 2 ? 'high-risk' : (d.SIMILARITY > 1 ? 'med-risk' : '');
-
-        // 유사도 태그
-        const riskTag = d.SIMILARITY > 2
-            ? '<span class="tag tag-danger">매우높음</span>'
-            : d.SIMILARITY > 1
-                ? '<span class="tag tag-warning">높음</span>'
-                : '<span class="tag tag-info">보통</span>';
+        const similarityDisplay = getSimilarityDisplay(d.SIMILARITY);
+        const riskClass = similarityDisplay.rowClass;
+        const riskTag = similarityDisplay.tagHtml;
 
         // 오류가능성 태그 (SCORE_PEAK 기준)
         const scoreVal = d.SCORE_PEAK || 0;
-        const scoreTag = scoreVal >= 40
-            ? `<span class="tag tag-danger">${scoreVal}%</span>`
-            : scoreVal >= 20
-                ? `<span class="tag tag-warning">${scoreVal}%</span>`
-                : `<span class="tag tag-info">${scoreVal}%</span>`;
+        const scoreTag = getScoreTag(scoreVal);
 
         // 권고사항 (유사도와 오류가능성 종합 판단)
-        const recommendation = (d.SIMILARITY > 2 || scoreVal >= 40)
-            ? '<span style="color: var(--accent-danger); font-weight:700;">즉시조치</span>'
-            : (d.SIMILARITY > 1 || scoreVal >= 20)
-                ? '<span style="color: var(--accent-warning);">주의관찰</span>'
-                : '<span style="color: var(--text-muted);">정상감시</span>';
+        const recommendation = getRecommendationHtml(d.SIMILARITY, scoreVal);
 
         // 시각 표시: DETECTED/CLEARED를 'MM-DD HH:MM' 형태로 단축
         const detectedStr = formatDateShort(d.DETECTED);
@@ -545,8 +597,9 @@ function renderChart() {
     // 최대 건수 계산 (막대 높이 비율 기준, 최소 1 보장)
     const maxCnt = Math.max(...byDate.map(d => Number(d.CNT) || 0), 1);
 
-    // 오늘 날짜 (강조 표시용)
-    const today = new Date().toISOString().split('T')[0];
+    // 오늘 날짜 (강조 표시용, 로컬 시간 기준)
+    const nowLocal = new Date();
+    const today = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth()+1).padStart(2,'0')}-${String(nowLocal.getDate()).padStart(2,'0')}`;
 
     // 막대 HTML 생성
     const barsHtml = byDate.map(d => {
@@ -604,23 +657,11 @@ function showDetail(index) {
 
     // 위험도 태그 (상세 모달에서도 동일 로직 적용)
     const scoreVal = d.SCORE_PEAK || 0;
-    const riskTag = d.SIMILARITY > 2
-        ? '<span class="tag tag-danger">매우높음</span>'
-        : d.SIMILARITY > 1
-            ? '<span class="tag tag-warning">높음</span>'
-            : '<span class="tag tag-info">보통</span>';
+    const riskTag = getSimilarityDisplay(d.SIMILARITY).tagHtml;
 
-    const scoreTag = scoreVal >= 40
-        ? `<span class="tag tag-danger">${scoreVal}%</span>`
-        : scoreVal >= 20
-            ? `<span class="tag tag-warning">${scoreVal}%</span>`
-            : `<span class="tag tag-info">${scoreVal}%</span>`;
+    const scoreTag = getScoreTag(scoreVal);
 
-    const recommendation = (d.SIMILARITY > 2 || scoreVal >= 40)
-        ? '<span style="color: var(--accent-danger); font-weight: 700;">즉시조치</span>'
-        : (d.SIMILARITY > 1 || scoreVal >= 20)
-            ? '<span style="color: var(--accent-warning);">주의관찰</span>'
-            : '<span style="color: var(--text-muted);">정상감시</span>';
+    const recommendation = getRecommendationHtml(d.SIMILARITY, scoreVal);
 
     // 보고 여부
     const reportDisplay = d.HAS_REPORT === 1
@@ -740,6 +781,7 @@ function closeDetailModal() {
  * @returns {Promise<void>}
  */
 async function applyFilter() {
+    await loadViewConfig();
     currentPage = 1;
     await Promise.all([loadData(), loadSummary()]);
 }
@@ -752,15 +794,47 @@ async function applyFilter() {
  * @returns {Promise<void>}
  */
 async function resetFilter() {
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('filter-from').value = today;
-    document.getElementById('filter-to').value = today;
+    await loadViewConfig();
+    setDatePreset('today');
     document.getElementById('filter-sector').value = 'ALL';
     document.getElementById('filter-risk').value = '';
     document.getElementById('filter-status').value = '';
 
     currentPage = 1;
     await Promise.all([loadData(), loadSummary()]);
+}
+
+/**
+ * 날짜 프리셋 설정
+ * @param {'today'|'week'|'month'|'3month'|'custom'} period
+ */
+function setDatePreset(period) {
+    document.querySelectorAll('.btn-preset').forEach(btn => btn.classList.remove('active'));
+    const activeBtn = document.querySelector(`.btn-preset[data-period="${period}"]`);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    const dateGroup = document.getElementById('date-range-group');
+    const today = new Date();
+    const toStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+    if (period === 'custom') {
+        dateGroup.style.display = 'flex';
+        return;
+    }
+
+    dateGroup.style.display = 'none';
+    let fromDate = new Date(today);
+
+    switch (period) {
+        case 'today': break;
+        case 'week': fromDate.setDate(fromDate.getDate() - 7); break;
+        case 'month': fromDate.setMonth(fromDate.getMonth() - 1); break;
+        case '3month': fromDate.setMonth(fromDate.getMonth() - 3); break;
+    }
+
+    const fromStr = `${fromDate.getFullYear()}-${String(fromDate.getMonth()+1).padStart(2,'0')}-${String(fromDate.getDate()).padStart(2,'0')}`;
+    document.getElementById('filter-from').value = fromStr;
+    document.getElementById('filter-to').value = toStr;
 }
 
 // ==================== Excel 내보내기 ====================
@@ -773,6 +847,10 @@ async function resetFilter() {
  *              데이터가 없으면 알림 후 중단.
  */
 function downloadExcel() {
+    if (typeof XLSX === 'undefined') {
+        alert('Excel 내보내기 라이브러리를 불러올 수 없습니다.');
+        return;
+    }
     if (!HISTORY_DATA || HISTORY_DATA.length === 0) {
         alert('다운로드할 데이터가 없습니다.');
         return;
@@ -803,11 +881,12 @@ function downloadExcel() {
         'FP2 고도': d.FP2_ALT || '',
         '유사도': d.SIMILARITY != null ? d.SIMILARITY : '',
         '오류가능성': d.SCORE_PEAK != null ? d.SCORE_PEAK : '',
-        '권고사항': (d.SIMILARITY > 2 || d.SCORE_PEAK >= 40)
-            ? '즉시조치'
-            : (d.SIMILARITY > 1 || d.SCORE_PEAK >= 20)
-                ? '주의관찰'
-                : '정상감시',
+        '권고사항': (() => {
+            const band = getRecommendationBand(d.SIMILARITY, d.SCORE_PEAK || 0);
+            if (band === 'critical') return '즉시조치';
+            if (band === 'caution') return '주의관찰';
+            return '정상감시';
+        })(),
         '보고여부': d.HAS_REPORT === 1 ? 'O' : '-'
     }));
 

@@ -28,6 +28,17 @@ if not exist "node_modules" (
     exit /b 1
 )
 
+:: 포트 4000 사용 중인 프로세스 종료
+echo [INFO] 포트 4000 확인 중...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":4000 "') do (
+    if not "%%a"=="0" (
+        echo [INFO] 포트 4000 사용 중인 프로세스 종료 (PID: %%a)
+        taskkill /PID %%a /F >nul 2>&1
+    )
+)
+timeout /t 1 /nobreak >nul
+echo.
+
 echo [INFO] 서버 시작 중...
 echo.
 node server.js

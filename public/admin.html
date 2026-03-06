@@ -6,7 +6,7 @@
     <title>유사호출부호 - 관리자</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="page-admin">
     <div id="loader" class="loader-overlay">
         <div class="spinner"></div>
         <div style="margin-top: 20px; font-size: 14px; letter-spacing: 2px;">데이터 로딩중...</div>
@@ -21,11 +21,6 @@
                     <span class="brand-sub">Similar Callsign Monitoring System</span>
                 </div>
             </a>
-            <nav class="header-nav">
-                <a href="/" class="header-nav-item">실시간 검출</a>
-                <a href="/history" class="header-nav-item">검출 이력</a>
-                <a href="/admin" class="header-nav-item active">보고 이력</a>
-            </nav>
         </div>
         <div class="header-right">
             <div class="system-status">
@@ -33,40 +28,26 @@
                     <div id="network-dot" class="blink-dot"></div>
                     <span id="network-status">연결중...</span>
                 </div>
-                <div class="status-item">UTC <span id="realtime-clock">00:00:00</span></div>
+                <div class="status-item">KST <span id="realtime-clock">00:00:00</span></div>
             </div>
-            <div class="header-contact">한국공항공사 시스템정보부 &#9742; 555</div>
+            <div class="header-shortcuts">
+                <a href="/" class="header-shortcut" title="실시간 검출">&#9992;</a>
+                <a href="/history" class="header-shortcut" title="검출 이력">&#128203;</a>
+            </div>
         </div>
     </div>
 
     <div class="container">
-        <div id="main-content" class="content-section full-width active">
+        <div class="admin-layout">
+        <div id="main-content" style="display: block;">
             <!-- 통계 카드 -->
-            <div class="stats-grid">
+            <div class="stats-grid" id="stats-grid">
                 <div class="stat-card">
                     <div class="stat-value" id="stat-total">0</div>
                     <div class="stat-label">전체 보고</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-type1" style="color: var(--accent-danger);">0</div>
-                    <div class="stat-label">관제사 오류</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-type2" style="color: var(--accent-warning);">0</div>
-                    <div class="stat-label">조종사 오류</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-type3" style="color: #f97316;">0</div>
-                    <div class="stat-label">복창오류</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-type4" style="color: #a78bfa;">0</div>
-                    <div class="stat-label">무응답/재호출</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-type5" style="color: var(--text-muted);">0</div>
-                    <div class="stat-label">기타</div>
-                </div>
+                <!-- 오류유형별 통계 카드는 settings.json 기반으로 동적 생성 -->
+                <div id="stat-type-cards"></div>
                 <div class="stat-card">
                     <div class="stat-value" id="stat-today" style="color: var(--accent-secondary);">0</div>
                     <div class="stat-label">오늘</div>
@@ -83,7 +64,16 @@
                     <div class="card-title">환경설정 (모든 브라우저에 적용)</div>
                     <button class="btn btn-ghost btn-sm" onclick="toggleSettings()">닫기</button>
                 </div>
-                <div style="padding: 15px 0;">
+
+                <!-- 탭 네비게이션 -->
+                <div style="display: flex; gap: 0; border-bottom: 1px solid var(--glass-border); margin-bottom: 16px;">
+                    <button class="cfg-tab active" data-tab="basic" onclick="switchCfgTab('basic')">기본 설정</button>
+                    <button class="cfg-tab" data-tab="sectormap" onclick="switchCfgTab('sectormap')">섹터 맵핑</button>
+                    <button class="cfg-tab" data-tab="errortypes" onclick="switchCfgTab('errortypes')">오류유형 관리</button>
+                </div>
+
+                <!-- 탭 1: 기본 설정 -->
+                <div id="cfg-tab-basic" class="cfg-tab-content">
                     <div class="form-group">
                         <label>표시할 섹터 선택 (체크하지 않으면 전체 표시)</label>
                         <div id="sector-checkboxes" style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; background: rgba(15,23,42,0.5); padding: 15px; border-radius: 8px;">
@@ -96,17 +86,17 @@
                             <label style="display: flex; align-items: center; gap: 5px; padding: 8px 12px; background: rgba(30,41,59,0.5); border-radius: 6px; cursor: pointer;">
                                 <input type="checkbox" class="similarity-checkbox" value="critical">
                                 <span style="color: #f87171; font-weight: 700;">매우높음</span>
-                                <span style="color: var(--text-muted); font-size: 11px;">(SIMILARITY &gt; 2)</span>
+                                <span id="sim-hint-critical" style="color: var(--text-muted); font-size: 11px;">(SIMILARITY &gt; 2)</span>
                             </label>
                             <label style="display: flex; align-items: center; gap: 5px; padding: 8px 12px; background: rgba(30,41,59,0.5); border-radius: 6px; cursor: pointer;">
                                 <input type="checkbox" class="similarity-checkbox" value="caution">
                                 <span style="color: #fbbf24; font-weight: 700;">높음</span>
-                                <span style="color: var(--text-muted); font-size: 11px;">(SIMILARITY &gt; 1)</span>
+                                <span id="sim-hint-caution" style="color: var(--text-muted); font-size: 11px;">(SIMILARITY &gt; 1)</span>
                             </label>
                             <label style="display: flex; align-items: center; gap: 5px; padding: 8px 12px; background: rgba(30,41,59,0.5); border-radius: 6px; cursor: pointer;">
                                 <input type="checkbox" class="similarity-checkbox" value="monitor">
                                 <span style="color: #7dd3fc; font-weight: 700;">보통</span>
-                                <span style="color: var(--text-muted); font-size: 11px;">(SIMILARITY ≤ 1)</span>
+                                <span id="sim-hint-monitor" style="color: var(--text-muted); font-size: 11px;">(SIMILARITY ≤ 1)</span>
                             </label>
                         </div>
                     </div>
@@ -130,17 +120,105 @@
                             </select>
                         </div>
                     </div>
-                    <div id="settings-info" style="background: rgba(14, 165, 233, 0.1); padding: 12px; border-radius: 6px; margin-top: 15px; font-size: 12px; color: var(--text-muted); display: none;">
+
+                    <div class="form-group" style="margin-top: 15px;">
+                        <label>위험도 기준값 설정</label>
+                        <div style="background: rgba(15,23,42,0.5); padding: 15px; border-radius: 8px; border: 1px solid var(--glass-border);">
+                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">저장 시 settings.json에 기록되며 즉시 반영됩니다. 필요하면 start.bat 재시작으로도 적용 가능합니다.</div>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label>유사도 매우높음 기준 (초과)</label>
+                                    <input id="setting-sim-critical" type="number" step="0.1" min="0" value="2">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label>유사도 높음 기준 (초과)</label>
+                                    <input id="setting-sim-caution" type="number" step="0.1" min="0" value="1">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label>오류가능성 매우높음 기준 (이상)</label>
+                                    <input id="setting-score-critical" type="number" step="1" min="0" value="40">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label>오류가능성 높음 기준 (이상)</label>
+                                    <input id="setting-score-caution" type="number" step="1" min="0" value="20">
+                                </div>
+                            </div>
+
+                            <div id="threshold-rule-hint" style="margin-top: 10px; font-size: 11px; color: var(--text-muted);"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 탭 2: 섹터 맵핑 -->
+                <div id="cfg-tab-sectormap" class="cfg-tab-content" style="display: none;">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.6;">
+                        DB의 CCP 숫자 코드와 화면에 표시될 섹터명을 설정합니다.<br>
+                        <b style="color: var(--accent-primary);">고정표시</b>에 체크된 섹터는 데이터가 없어도 항상 섹터 목록에 표시됩니다 (순서도 유지됩니다).
+                    </div>
+                    <div style="background: rgba(15,23,42,0.5); border-radius: 8px; overflow: hidden; border: 1px solid var(--glass-border);">
+                        <div style="display: grid; grid-template-columns: 80px 110px 70px auto; gap: 0; background: rgba(30,41,59,0.8); padding: 8px 10px; font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--glass-border);">
+                            <span>코드</span><span>섹터명</span><span style="text-align:center;">고정표시</span><span></span>
+                        </div>
+                        <div id="sector-map-rows" style="max-height: 320px; overflow-y: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px;">
+                            <!-- 동적으로 생성됨 -->
+                        </div>
+                    </div>
+                    <button class="btn btn-ghost btn-sm" style="margin-top: 10px;" onclick="addSectorMapRow()">+ 행 추가</button>
+                </div>
+
+                <!-- 탭 3: 오류유형 관리 -->
+                <div id="cfg-tab-errortypes" class="cfg-tab-content" style="display: none;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                        <!-- 오류유형 -->
+                        <div>
+                            <div style="font-size: 13px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">오류유형</div>
+                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">보고 모달의 오류유형 콤보박스 항목입니다. 코드는 DB에 저장되므로 기존 보고서가 있다면 변경하지 마세요.</div>
+                            <div style="background: rgba(15,23,42,0.5); border-radius: 8px; overflow: hidden; border: 1px solid var(--glass-border);">
+                                <div style="display: grid; grid-template-columns: 52px 1fr auto; background: rgba(30,41,59,0.8); padding: 8px 10px; font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--glass-border);">
+                                    <span>코드</span><span>이름</span><span></span>
+                                </div>
+                                <div id="error-type-rows" style="padding: 6px 8px; display: flex; flex-direction: column; gap: 2px;">
+                                    <!-- 동적으로 생성됨 -->
+                                </div>
+                            </div>
+                            <button class="btn btn-ghost btn-sm" style="margin-top: 10px;" onclick="addErrorTypeRow()">+ 추가</button>
+                        </div>
+                        <!-- 세부오류유형 -->
+                        <div>
+                            <div style="font-size: 13px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">세부오류유형</div>
+                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">각 오류유형에 속하는 세부 유형입니다. 상위유형을 먼저 저장한 후 추가하세요.</div>
+                            <div style="background: rgba(15,23,42,0.5); border-radius: 8px; overflow: hidden; border: 1px solid var(--glass-border);">
+                                <div style="display: grid; grid-template-columns: 52px 1fr 100px auto; background: rgba(30,41,59,0.8); padding: 8px 10px; font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--glass-border);">
+                                    <span>코드</span><span>이름</span><span>상위유형</span><span></span>
+                                </div>
+                                <div id="detail-type-rows" style="max-height: 280px; overflow-y: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px;">
+                                    <!-- 동적으로 생성됨 -->
+                                </div>
+                            </div>
+                            <button class="btn btn-ghost btn-sm" style="margin-top: 10px;" onclick="addDetailTypeRow()">+ 추가</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 공통 하단 (저장/불러오기) -->
+                <div style="margin-top: 20px; border-top: 1px solid var(--glass-border); padding-top: 16px;">
+                    <div id="settings-info" style="background: rgba(14, 165, 233, 0.1); padding: 12px; border-radius: 6px; margin-bottom: 12px; font-size: 12px; color: var(--text-muted); display: none;">
                         마지막 수정: <span id="settings-updated"></span>
                     </div>
-                    <div style="display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; justify-content: space-between;">
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: space-between;">
                         <div style="display: flex; gap: 10px;">
                             <button class="btn btn-primary" onclick="saveSettings()">설정 저장</button>
                             <button class="btn btn-ghost" onclick="loadSettings()">다시 불러오기</button>
                         </div>
-                        <a href="/setup" class="btn btn-ghost" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;" target="_blank">
-                            <span style="font-size: 14px;">🖥</span> 클라이언트 도메인 설정
-                        </a>
+                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <a href="/setup" class="btn btn-ghost" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;" target="_blank">
+                                <span style="font-size: 14px;">🖥</span> 도메인 설정
+                            </a>
+                            <button class="btn btn-ghost" onclick="downloadShortcut('/')" title="브라우저 + 창전환 통합 바로가기">
+                                <span style="font-size: 14px;">📌</span> 클라이언트 바로가기
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -148,29 +226,35 @@
             <!-- 필터 섹션 -->
             <div class="card" style="margin-bottom: 20px;">
                 <div class="filter-section">
-                    <div class="filter-group">
-                        <label>시작일:</label>
-                        <input type="date" id="filter-from">
+                    <div class="filter-group" style="gap: 4px;">
+                        <label>기간:</label>
+                        <button class="btn-preset active" data-period="today" onclick="setDatePreset('today')">오늘</button>
+                        <button class="btn-preset" data-period="week" onclick="setDatePreset('week')">1주</button>
+                        <button class="btn-preset" data-period="month" onclick="setDatePreset('month')">1개월</button>
+                        <button class="btn-preset" data-period="3month" onclick="setDatePreset('3month')">3개월</button>
+                        <button class="btn-preset" data-period="custom" onclick="setDatePreset('custom')">직접입력</button>
                     </div>
-                    <div class="filter-group">
-                        <label>종료일:</label>
+                    <div class="filter-group" id="date-range-group" style="display: none;">
+                        <input type="date" id="filter-from">
+                        <span style="color: var(--text-muted);">~</span>
                         <input type="date" id="filter-to">
                     </div>
                     <div class="filter-group">
                         <label>유형:</label>
                         <select id="filter-type">
                             <option value="">전체</option>
-                            <option value="1">관제사 오류</option>
-                            <option value="2">조종사 오류</option>
-                            <option value="3">복창오류</option>
-                            <option value="4">무응답/재호출</option>
-                            <option value="5">기타</option>
                         </select>
                     </div>
                     <div class="filter-group">
                         <label>섹터:</label>
                         <select id="filter-sector">
                             <option value="ALL">전체</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>세부유형:</label>
+                        <select id="filter-detail">
+                            <option value="">전체</option>
                         </select>
                     </div>
                     <button class="btn btn-primary btn-sm" onclick="applyFilter()">검색</button>
@@ -216,6 +300,16 @@
                             <!-- 동적 생성 -->
                         </div>
                     </div>
+
+                    <!-- 세부오류유형별 통계 -->
+                    <div class="card">
+                        <div class="card-header" style="margin-bottom: 15px;">
+                            <div class="card-title" style="margin-bottom: 0;">세부오류유형별 분포</div>
+                        </div>
+                        <div id="detail-chart" class="horizontal-bar-chart">
+                            <!-- 동적 생성 -->
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -238,7 +332,7 @@
                                 <th>유사호출부호</th>
                                 <th>보고자</th>
                                 <th>오류유형</th>
-                                <th>안전영향도</th>
+                                <th>세부오류유형</th>
                             </tr>
                         </thead>
                         <tbody id="reports-tbody"></tbody>
@@ -248,6 +342,69 @@
                     <span id="callsign-stats-info">조회기간: - | 호출부호 데이터: 0건</span>
                 </div>
             </div>
+        </div>
+
+        <!-- 오른쪽 사이드바: 시간대별 + 오늘 검출 현황 -->
+        <div class="admin-sidebar">
+            <!-- 시간대별 현황 -->
+            <div class="card">
+                <div class="card-header" style="margin-bottom: 10px;">
+                    <div class="card-title" style="margin-bottom: 0; font-size: 12px;">시간대별 검출 현황</div>
+                    <span id="hourly-total" style="font-size: 13px; font-weight: 700; color: var(--accent-primary);">0건</span>
+                </div>
+                <div class="hourly-chart-container">
+                    <div class="hourly-chart-area">
+                        <div class="hourly-yaxis" id="hourly-yaxis">
+                            <span>0</span><span>0</span><span>0</span>
+                        </div>
+                        <div class="hourly-chart" id="hourly-chart">
+                            <!-- 동적 생성 -->
+                        </div>
+                    </div>
+                    <div class="hourly-labels">
+                        <span>00</span><span>06</span><span>12</span><span>18</span><span>23</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 오늘 검출 현황 -->
+            <div class="card">
+                <div class="card-header" style="margin-bottom: 10px;">
+                    <div class="card-title" style="margin-bottom: 0; font-size: 12px;">오늘 검출 현황</div>
+                    <span id="today-detect-total" style="font-size: 13px; font-weight: 700; color: var(--accent-primary);">0건</span>
+                </div>
+                <!-- 위험도별 -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                    <div style="background: rgba(239,68,68,0.1); border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 20px; font-weight: 700; color: #f87171; font-family: var(--font-mono);" id="today-danger">0</div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">매우높음</div>
+                    </div>
+                    <div style="background: rgba(245,158,11,0.1); border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 20px; font-weight: 700; color: #fbbf24; font-family: var(--font-mono);" id="today-warning">0</div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">높음</div>
+                    </div>
+                    <div style="background: rgba(14,165,233,0.1); border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 20px; font-weight: 700; color: #7dd3fc; font-family: var(--font-mono);" id="today-info">0</div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">보통</div>
+                    </div>
+                </div>
+                <!-- 활성/해제 -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                    <div style="background: rgba(16,185,129,0.1); border-radius: 6px; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 11px; color: var(--text-muted);">활성</span>
+                        <span style="font-size: 16px; font-weight: 700; color: var(--accent-secondary); font-family: var(--font-mono);" id="today-active">0</span>
+                    </div>
+                    <div style="background: rgba(148,163,184,0.1); border-radius: 6px; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 11px; color: var(--text-muted);">해제</span>
+                        <span style="font-size: 16px; font-weight: 700; color: var(--text-muted); font-family: var(--font-mono);" id="today-cleared">0</span>
+                    </div>
+                </div>
+                <!-- 섹터별 -->
+                <div id="today-sector-list" style="display: flex; flex-direction: column; gap: 3px;">
+                    <!-- 동적 생성 -->
+                </div>
+            </div>
+        </div>
         </div>
     </div>
 

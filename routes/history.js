@@ -15,7 +15,10 @@
 const express = require('express');
 const router = express.Router();
 const oracledb = require('oracledb');
+const fs = require('fs');
+const path = require('path');
 const db = require('../config/database');
+const { kstToUtc, convertRowsToKst } = require('../config/timeUtil');
 
 // =====================================================================
 // 상수 정의
@@ -30,11 +33,69 @@ const PAGE_SIZE_MAX = 200;
 /** 페이지당 기본 레코드 수 */
 const PAGE_SIZE_DEFAULT = 50;
 
+/** 기본 표시 대상 섹터 목록 (설정 파일에 없을 때 fallback) */
+const DEFAULT_SECTORS = ['3', '2', '10', '9', '11', '13', '12'];
+
 /**
- * 표시 대상 섹터 목록 (FIXED_SECTORS와 동일)
- * @description GL, GH, KL, KH, JN, JL, JH 섹터만 이력 조회 대상
+ * 표시 대상 섹터 목록을 settings.json에서 동적으로 읽음
+ * @returns {string[]} fixedSectors 배열
  */
-const ALLOWED_SECTORS = ['3', '2', '10', '9', '11', '13', '12'];
+function getAllowedSectors() {
+    try {
+        const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+        return (settings.fixedSectors && settings.fixedSectors.length > 0)
+            ? settings.fixedSectors
+            : DEFAULT_SECTORS;
+    } catch (e) {
+        return DEFAULT_SECTORS;
+    }
+}
+
+/** 설정 파일 경로 */
+const SETTINGS_PATH = path.join(__dirname, '..', 'config', 'settings.json');
+
+/** 기본 위험도 기준값 */
+const DEFAULT_THRESHOLDS = {
+    similarity: { critical: 2, caution: 1 },
+    scorePeak: { critical: 40, caution: 20 }
+};
+
+function normalizeThresholds(thresholds) {
+    const simCriticalRaw = Number(thresholds?.similarity?.critical);
+    const simCautionRaw = Number(thresholds?.similarity?.caution);
+    const scoreCriticalRaw = Number(thresholds?.scorePeak?.critical);
+    const scoreCautionRaw = Number(thresholds?.scorePeak?.caution);
+
+    const normalized = {
+        similarity: {
+            critical: Number.isFinite(simCriticalRaw) ? simCriticalRaw : DEFAULT_THRESHOLDS.similarity.critical,
+            caution: Number.isFinite(simCautionRaw) ? simCautionRaw : DEFAULT_THRESHOLDS.similarity.caution
+        },
+        scorePeak: {
+            critical: Number.isFinite(scoreCriticalRaw) ? scoreCriticalRaw : DEFAULT_THRESHOLDS.scorePeak.critical,
+            caution: Number.isFinite(scoreCautionRaw) ? scoreCautionRaw : DEFAULT_THRESHOLDS.scorePeak.caution
+        }
+    };
+
+    if (!(normalized.similarity.critical > normalized.similarity.caution)) {
+        normalized.similarity = DEFAULT_THRESHOLDS.similarity;
+    }
+    if (!(normalized.scorePeak.critical > normalized.scorePeak.caution)) {
+        normalized.scorePeak = DEFAULT_THRESHOLDS.scorePeak;
+    }
+    return normalized;
+}
+
+function getThresholdsFromSettings() {
+    try {
+        const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
+        const parsed = JSON.parse(raw);
+        return normalizeThresholds(parsed.thresholds);
+    } catch (err) {
+        console.error('history 설정 파일 읽기 실패:', err);
+        return normalizeThresholds();
+    }
+}
 
 // =====================================================================
 // 유틸리티 함수
@@ -93,50 +154,57 @@ function parsePagination(rawPage, rawPageSize) {
  * @param {string} [params.status] - 'active' | 'cleared' | '' (전체)
  * @returns {{ whereClause: string, binds: Object }}
  */
-function buildWhereClause({ from, to, sector, risk, status }) {
+function buildWhereClause({ from, to, sector, risk, status, thresholds }) {
     let whereClause = '1=1';
     const binds = {};
     const dateRegex = /^\d{4}-\d{2}-\d{2}/;
+    const simThresholds = normalizeThresholds(thresholds).similarity;
 
-    // --- 날짜 범위 필터 (DETECTED 기준, 형식 검증 포함) ---
+    // --- 날짜 범위 필터 (DETECTED 기준, KST→UTC 변환 후 비교) ---
     if (from) {
         if (!dateRegex.test(from)) {
             throw new Error('시작일 형식이 유효하지 않습니다.');
         }
         whereClause += ' AND DETECTED >= :startDt';
-        binds.startDt = from;
+        binds.startDt = kstToUtc(from);
     }
     if (to) {
         if (!dateRegex.test(to)) {
             throw new Error('종료일 형식이 유효하지 않습니다.');
         }
+        const toFull = to.length === 10 ? to + ' 23:59:59' : to;
         whereClause += ' AND DETECTED <= :endDt';
-        binds.endDt = to;
+        binds.endDt = kstToUtc(toFull);
     }
 
-    // --- 섹터 필터 (ALLOWED_SECTORS 내 섹터만 조회) ---
+    // --- 섹터 필터 (settings.json의 fixedSectors 기반) ---
+    const allowedSectors = getAllowedSectors();
     if (sector && sector !== 'ALL') {
-        // 특정 섹터 선택 시 (ALLOWED_SECTORS 포함 여부도 검증)
-        if (!ALLOWED_SECTORS.includes(sector)) {
+        // 특정 섹터 선택 시 (허용 목록 포함 여부 검증)
+        if (!allowedSectors.includes(sector)) {
             throw new Error('유효하지 않은 섹터입니다.');
         }
         whereClause += ' AND CCP = :sector';
         binds.sector = sector;
     } else {
-        // 전체 조회 시에도 ALLOWED_SECTORS 내 섹터만
-        whereClause += ` AND CCP IN (${ALLOWED_SECTORS.map((_, i) => `:sec${i}`).join(', ')})`;
-        ALLOWED_SECTORS.forEach((sec, i) => {
+        // 전체 조회 시에도 허용된 섹터만
+        whereClause += ` AND CCP IN (${allowedSectors.map((_, i) => `:sec${i}`).join(', ')})`;
+        allowedSectors.forEach((sec, i) => {
             binds[`sec${i}`] = sec;
         });
     }
 
     // --- 위험도 필터 (SIMILARITY 기준) ---
     if (risk === 'danger') {
-        whereClause += ' AND SIMILARITY > 2';
+        whereClause += ' AND SIMILARITY > :simCritical';
+        binds.simCritical = simThresholds.critical;
     } else if (risk === 'warning') {
-        whereClause += ' AND SIMILARITY > 1 AND SIMILARITY <= 2';
+        whereClause += ' AND SIMILARITY > :simCaution AND SIMILARITY <= :simCritical';
+        binds.simCaution = simThresholds.caution;
+        binds.simCritical = simThresholds.critical;
     } else if (risk === 'info') {
-        whereClause += ' AND SIMILARITY <= 1';
+        whereClause += ' AND SIMILARITY <= :simCaution';
+        binds.simCaution = simThresholds.caution;
     }
 
     // --- 활성/해제 상태 필터 (CLEARED 기준, 바인드 변수 사용) ---
@@ -178,12 +246,13 @@ router.get('/', async (req, res) => {
     try {
         const { from, to, sector, risk, status } = req.query;
         const { page, pageSize } = parsePagination(req.query.page, req.query.pageSize);
+        const thresholds = getThresholdsFromSettings();
 
         // ROWNUM 페이지네이션 범위 계산
         const minRow = (page - 1) * pageSize;       // 이전 페이지까지의 행 수 (exclusive)
         const maxRow = page * pageSize;              // 현재 페이지까지의 행 수 (inclusive)
 
-        const { whereClause, binds } = buildWhereClause({ from, to, sector, risk, status });
+        const { whereClause, binds } = buildWhereClause({ from, to, sector, risk, status, thresholds });
 
         // 페이지네이션 bind 변수 추가
         const paginationBinds = Object.assign({}, binds, {
@@ -263,7 +332,7 @@ router.get('/', async (req, res) => {
 
         res.json({
             success: true,
-            data: dataResult.rows,
+            data: convertRowsToKst(dataResult.rows),
             pagination: {
                 page,
                 pageSize,
@@ -307,50 +376,48 @@ router.get('/summary', async (req, res) => {
     let conn;
     try {
         const { from, to, sector } = req.query;
-        const { whereClause, binds } = buildWhereClause({ from, to, sector });
+        const thresholds = getThresholdsFromSettings();
+        const { whereClause, binds } = buildWhereClause({ from, to, sector, thresholds });
 
         // summary용 바인드에 CLEARED 센티넬 값 추가 (CASE WHEN에서 사용)
         const summaryBinds = Object.assign({}, binds, {
-            clearedSentinel: ACTIVE_CLEARED_VALUE
+            clearedSentinel: ACTIVE_CLEARED_VALUE,
+            simCritical: thresholds.similarity.critical,
+            simCaution: thresholds.similarity.caution
         });
 
         conn = await db.getConnection();
 
-        // 단일 커넥션에서 3개 쿼리 병렬 실행 (admin.js 패턴과 동일)
-        const [summaryResult, byDateResult, bySectorResult] = await Promise.all([
-            // [1] 전체 건수 + 위험도별 + 활성/해제 건수를 단일 쿼리로 통합
-            conn.execute(`
-                SELECT
-                    COUNT(*) AS TOTAL_COUNT,
-                    SUM(CASE WHEN SIMILARITY > 2 THEN 1 ELSE 0 END) AS DANGER_CNT,
-                    SUM(CASE WHEN SIMILARITY > 1 AND SIMILARITY <= 2 THEN 1 ELSE 0 END) AS WARNING_CNT,
-                    SUM(CASE WHEN SIMILARITY <= 1 THEN 1 ELSE 0 END) AS INFO_CNT,
-                    SUM(CASE WHEN CLEARED = :clearedSentinel THEN 1 ELSE 0 END) AS ACTIVE_COUNT,
-                    SUM(CASE WHEN CLEARED != :clearedSentinel THEN 1 ELSE 0 END) AS CLEARED_COUNT
-                FROM T_SIMILAR_CALLSIGN_PAIR c
-                WHERE ${whereClause}
-            `, summaryBinds, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
+        // 순차 실행 (단일 connection에서 병렬 실행 시 Thick mode 안정성 문제)
+        const summaryResult = await conn.execute(`
+            SELECT
+                COUNT(*) AS TOTAL_COUNT,
+                SUM(CASE WHEN SIMILARITY > :simCritical THEN 1 ELSE 0 END) AS DANGER_CNT,
+                SUM(CASE WHEN SIMILARITY > :simCaution AND SIMILARITY <= :simCritical THEN 1 ELSE 0 END) AS WARNING_CNT,
+                SUM(CASE WHEN SIMILARITY <= :simCaution THEN 1 ELSE 0 END) AS INFO_CNT,
+                SUM(CASE WHEN CLEARED = :clearedSentinel THEN 1 ELSE 0 END) AS ACTIVE_COUNT,
+                SUM(CASE WHEN CLEARED != :clearedSentinel THEN 1 ELSE 0 END) AS CLEARED_COUNT
+            FROM T_SIMILAR_CALLSIGN_PAIR c
+            WHERE ${whereClause}
+        `, summaryBinds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
 
-            // [2] 일별 검출 건수
-            conn.execute(`
-                SELECT
-                    SUBSTR(c.DETECTED, 1, 10) AS DETECT_DATE,
-                    COUNT(*) AS CNT
-                FROM T_SIMILAR_CALLSIGN_PAIR c
-                WHERE ${whereClause}
-                GROUP BY SUBSTR(c.DETECTED, 1, 10)
-                ORDER BY DETECT_DATE ASC
-            `, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
+        const byDateResult = await conn.execute(`
+            SELECT
+                TO_CHAR(TO_DATE(c.DETECTED, 'YYYY-MM-DD HH24:MI:SS') + 9/24, 'YYYY-MM-DD') AS DETECT_DATE,
+                COUNT(*) AS CNT
+            FROM T_SIMILAR_CALLSIGN_PAIR c
+            WHERE ${whereClause}
+            GROUP BY TO_CHAR(TO_DATE(c.DETECTED, 'YYYY-MM-DD HH24:MI:SS') + 9/24, 'YYYY-MM-DD')
+            ORDER BY DETECT_DATE ASC
+        `, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
 
-            // [3] 섹터별 검출 건수
-            conn.execute(`
-                SELECT c.CCP, COUNT(*) AS CNT
-                FROM T_SIMILAR_CALLSIGN_PAIR c
-                WHERE ${whereClause}
-                GROUP BY c.CCP
-                ORDER BY c.CCP ASC
-            `, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT })
-        ]);
+        const bySectorResult = await conn.execute(`
+            SELECT c.CCP, COUNT(*) AS CNT
+            FROM T_SIMILAR_CALLSIGN_PAIR c
+            WHERE ${whereClause}
+            GROUP BY c.CCP
+            ORDER BY c.CCP ASC
+        `, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
 
         const s = summaryResult.rows[0] || {};
 

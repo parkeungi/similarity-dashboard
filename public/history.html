@@ -6,7 +6,7 @@
     <title>유사호출부호 - 검출 이력</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="page-admin">
     <div id="loader" class="loader-overlay">
         <div class="spinner"></div>
         <div style="margin-top: 20px; font-size: 14px; letter-spacing: 2px;">데이터 로딩중...</div>
@@ -21,11 +21,6 @@
                     <span class="brand-sub">Similar Callsign Monitoring System</span>
                 </div>
             </a>
-            <nav class="header-nav">
-                <a href="/" class="header-nav-item">실시간 검출</a>
-                <a href="/history" class="header-nav-item active">검출 이력</a>
-                <a href="/admin" class="header-nav-item">보고 이력</a>
-            </nav>
         </div>
         <div class="header-right">
             <div class="system-status">
@@ -33,9 +28,12 @@
                     <div id="network-dot" class="blink-dot"></div>
                     <span id="network-status">연결중...</span>
                 </div>
-                <div class="status-item">UTC <span id="realtime-clock">00:00:00</span></div>
+                <div class="status-item">KST <span id="realtime-clock">00:00:00</span></div>
             </div>
-            <div class="header-contact">한국공항공사 시스템정보부 &#9742; 555</div>
+            <div class="header-shortcuts">
+                <a href="/" class="header-shortcut" title="실시간 검출">&#9992;</a>
+                <a href="/admin" class="header-shortcut" title="보고 이력">&#128221;</a>
+            </div>
         </div>
     </div>
 
@@ -73,12 +71,17 @@
             <!-- 필터 섹션 -->
             <div class="card" style="margin-bottom: 20px;">
                 <div class="filter-section">
-                    <div class="filter-group">
-                        <label>시작일:</label>
-                        <input type="date" id="filter-from">
+                    <div class="filter-group" style="gap: 4px;">
+                        <label>기간:</label>
+                        <button class="btn-preset active" data-period="today" onclick="setDatePreset('today')">오늘</button>
+                        <button class="btn-preset" data-period="week" onclick="setDatePreset('week')">1주</button>
+                        <button class="btn-preset" data-period="month" onclick="setDatePreset('month')">1개월</button>
+                        <button class="btn-preset" data-period="3month" onclick="setDatePreset('3month')">3개월</button>
+                        <button class="btn-preset" data-period="custom" onclick="setDatePreset('custom')">직접입력</button>
                     </div>
-                    <div class="filter-group">
-                        <label>종료일:</label>
+                    <div class="filter-group" id="date-range-group" style="display: none;">
+                        <input type="date" id="filter-from">
+                        <span style="color: var(--text-muted);">~</span>
                         <input type="date" id="filter-to">
                     </div>
                     <div class="filter-group">

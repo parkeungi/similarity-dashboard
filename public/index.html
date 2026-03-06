@@ -21,11 +21,6 @@
                     <span class="brand-sub">Similar Callsign Monitoring System</span>
                 </div>
             </a>
-            <nav class="header-nav">
-                <a href="/" class="header-nav-item active">실시간 검출</a>
-                <a href="/history" class="header-nav-item">검출 이력</a>
-                <a href="/admin" class="header-nav-item">보고 이력</a>
-            </nav>
         </div>
         <div class="header-right">
             <div class="system-status">
@@ -33,40 +28,33 @@
                     <div id="network-dot" class="blink-dot"></div>
                     <span id="network-status">대기중</span>
                 </div>
-                <div class="status-item">UTC <span id="realtime-clock">00:00:00</span></div>
+                <div class="status-item">KST <span id="realtime-clock">00:00:00</span></div>
             </div>
-            <div class="header-contact">한국공항공사 시스템정보부 &#9742; 555</div>
+            <div class="header-shortcuts">
+                <a href="/history" class="header-shortcut" title="검출 이력">&#128203;</a>
+                <a href="/admin" class="header-shortcut" title="보고 이력">&#128221;</a>
+            </div>
         </div>
     </div>
 
     <div class="container">
-        <div id="main-content" class="content-section active">
-            <div class="sidebar">
-                <div class="card">
-                    <div class="card-title">섹터 현황</div>
-                    <div id="sector-list"></div>
-                    <button class="btn btn-ghost" style="width: 100%; margin-top: 15px; font-size: 12px;" onclick="filterBySector('ALL')">전체 섹터 보기</button>
-                </div>
-                <div class="card">
-                    <div class="card-title">오늘 검출 현황</div>
-                    <div style="font-size: 12px; line-height: 1.6; margin-bottom: 10px;">
-                        <span style="color: var(--text-muted);">갱신</span> <span id="last-update" style="color: var(--accent-primary);">--:--:--</span>
-                        &nbsp;&middot;&nbsp;
-                        <span style="color: var(--text-muted);">합계</span> <span id="total-alerts" style="color: var(--accent-primary); font-weight: 700;">0</span>
-                        &nbsp;&middot;&nbsp;
-                        <span style="color: var(--text-muted);">고위험</span> <span id="high-risk-count" style="color: var(--accent-danger); font-weight: 700;">0</span>
-                    </div>
-                    <div id="sector-summary" style="font-size: 12px;"></div>
-                </div>
-            </div>
-
+        <div id="main-content" class="content-section full-width active">
             <div class="main-content">
+                <!-- 섹터 현황 카드 영역 -->
+                <div class="card" style="padding: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div class="card-title" style="margin: 0; font-size: 15px;">섹터 현황</div>
+                        <button class="btn btn-ghost" style="padding: 6px 14px; font-size: 13px;" onclick="filterBySector('ALL')">전체 섹터 보기</button>
+                    </div>
+                    <div id="sector-cards"></div>
+                </div>
+
                 <div class="card" style="padding: 0;">
-                    <div style="padding: 12px 20px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center;">
-                        <div class="card-title" style="margin: 0; font-size: 14px;">실시간 유사호출부호 목록</div>
-                        <button class="btn btn-ghost" style="padding: 6px 12px; font-size: 12px;" onclick="exportToExcel()">
+                    <div style="padding: 16px 20px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center;">
+                        <div class="card-title" style="margin: 0; font-size: 20px;">실시간 유사호출부호 목록</div>
+                        <!-- <button class="btn btn-ghost" style="padding: 8px 16px; font-size: 16px;" onclick="exportToExcel()">
                             <span style="margin-right: 4px;">📊</span> Excel 내보내기
-                        </button>
+                        </button> -->
                     </div>
                     <div class="table-container">
                         <table>
@@ -87,76 +75,56 @@
                 </div>
             </div>
 
-            <div class="sidebar-right">
-                <div class="card">
-                    <div class="card-header" style="margin-bottom: 10px;">
-                        <div class="card-title" style="margin-bottom: 0;">시간대별 검출</div>
-                        <span id="hourly-total" style="font-size: 12px; color: var(--accent-primary);">0건</span>
-                    </div>
-                    <div class="hourly-chart-container">
-                        <div class="hourly-chart-area">
-                            <div id="hourly-yaxis" class="hourly-yaxis"></div>
-                            <div id="hourly-chart" class="hourly-chart"></div>
-                        </div>
-                        <div class="hourly-labels">
-                            <span>0</span><span>6</span><span>12</span><span>18</span><span>23</span>
-                        </div>
-                    </div>
-                    <div id="hourly-peak" style="padding: 8px 0 0; font-size: 11px; color: var(--text-muted); text-align: center;">
-                        피크 시간대: -
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
 
     <!-- 오류 보고 모달 -->
     <div id="reportModal" class="modal">
-        <div class="modal-content" style="padding: 20px; max-width: 520px;">
-            <div class="card-title" style="color: var(--accent-danger); margin-bottom: 12px; font-size: 13px;">유사호출부호 오류 보고</div>
+        <div class="modal-content" style="padding: 28px; width: 680px; max-width: 90%;">
+            <div class="card-title" style="color: var(--accent-danger); margin-bottom: 16px; font-size: 20px;">유사호출부호 오류 보고</div>
 
             <input type="hidden" id="reportIdx">
 
             <!-- 검출 정보 표시 -->
-            <div id="detectionInfo" style="background: rgba(15, 23, 42, 0.5); border: 1px solid var(--glass-border); border-radius: 6px; padding: 10px; margin-bottom: 12px; display: none;">
-                <div style="font-size: 11px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">검출 정보</div>
+            <div id="detectionInfo" style="background: rgba(15, 23, 42, 0.5); border: 1px solid var(--glass-border); border-radius: 8px; padding: 14px; margin-bottom: 18px; display: none;">
+                <div style="font-size: 14px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px;">검출 정보</div>
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr>
-                        <td style="padding: 3px 8px; font-size: 11px; color: var(--text-muted); width: 30%;">호출부호</td>
-                        <td id="det-callsign" style="padding: 3px 8px; font-size: 12px; font-weight: bold; color: var(--accent-primary);"></td>
-                        <td style="padding: 3px 8px; font-size: 11px; color: var(--text-muted); width: 20%;">항공사</td>
-                        <td id="det-airline" style="padding: 3px 8px; font-size: 12px;"></td>
+                        <td style="padding: 6px 10px; font-size: 15px; color: var(--text-muted); white-space: nowrap; width: 20%;">호출부호</td>
+                        <td id="det-callsign" style="padding: 6px 10px; font-size: 16px; font-weight: bold; color: var(--accent-primary); width: 30%;"></td>
+                        <td style="padding: 6px 10px; font-size: 15px; color: var(--text-muted); white-space: nowrap; width: 15%;">항공사</td>
+                        <td id="det-airline" style="padding: 6px 10px; font-size: 16px; width: 35%;"></td>
                     </tr>
                     <tr style="background: rgba(255,255,255,0.03);">
-                        <td style="padding: 3px 8px; font-size: 11px; color: var(--text-muted);">섹터</td>
-                        <td id="det-sector" style="padding: 3px 8px; font-size: 12px;"></td>
-                        <td style="padding: 3px 8px; font-size: 11px; color: var(--text-muted);">유사도</td>
-                        <td id="det-similarity" style="padding: 3px 8px;"></td>
+                        <td style="padding: 6px 10px; font-size: 15px; color: var(--text-muted); white-space: nowrap;">섹터</td>
+                        <td id="det-sector" style="padding: 6px 10px; font-size: 16px;"></td>
+                        <td style="padding: 6px 10px; font-size: 15px; color: var(--text-muted); white-space: nowrap;">유사도</td>
+                        <td id="det-similarity" style="padding: 6px 10px;"></td>
                     </tr>
                     <tr>
-                        <td style="padding: 3px 8px; font-size: 11px; color: var(--text-muted);">오류가능성</td>
-                        <td id="det-risk" style="padding: 3px 8px;"></td>
-                        <td style="padding: 3px 8px; font-size: 11px; color: var(--text-muted);">권고</td>
-                        <td id="det-action" style="padding: 3px 8px;"></td>
+                        <td style="padding: 6px 10px; font-size: 15px; color: var(--text-muted); white-space: nowrap;">오류가능성</td>
+                        <td id="det-risk" style="padding: 6px 10px;"></td>
+                        <td style="padding: 6px 10px; font-size: 15px; color: var(--text-muted); white-space: nowrap;">권고</td>
+                        <td id="det-action" style="padding: 6px 10px;"></td>
                     </tr>
                 </table>
             </div>
 
-            <div class="form-row" style="margin-bottom: 8px;">
+            <div class="form-row" style="margin-bottom: 12px;">
                 <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                    <label>발생 일시 <span style="color: var(--accent-danger);">*</span></label>
-                    <input type="datetime-local" id="reportDateTime" style="padding: 8px;">
+                    <label style="font-size: 16px;">발생 일시 <span style="color: var(--accent-danger);">*</span></label>
+                    <input type="datetime-local" id="reportDateTime" style="padding: 10px; font-size: 15px;">
                 </div>
                 <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                    <label>유사호출부호 <span style="color: var(--accent-danger);">*</span></label>
-                    <input type="text" id="reportCallsign" readonly style="background: rgba(0,0,0,0.3); padding: 8px;">
+                    <label style="font-size: 16px;">유사호출부호 <span style="color: var(--accent-danger);">*</span></label>
+                    <input type="text" id="reportCallsign" readonly style="background: rgba(0,0,0,0.3); padding: 10px; font-size: 15px;">
                 </div>
             </div>
 
-            <div class="form-row" style="margin-bottom: 8px;">
+            <div class="form-row" style="margin-bottom: 12px;">
                 <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                    <label>오류 항공기 <span style="color: var(--accent-danger);">*</span></label>
-                    <select id="reportAO" style="padding: 8px;">
+                    <label style="font-size: 16px;">오류 항공기 <span style="color: var(--accent-danger);">*</span></label>
+                    <select id="reportAO" style="padding: 10px; font-size: 15px;">
                         <option value="">선택하세요</option>
                         <option value="1">FP1 (첫번째 항공기)</option>
                         <option value="2">FP2 (두번째 항공기)</option>
@@ -164,47 +132,39 @@
                     </select>
                 </div>
                 <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                    <label>오류 유형 <span style="color: var(--accent-danger);">*</span></label>
-                    <select id="reportType" style="padding: 8px;">
-                        <option value="">선택하세요</option>
-                        <option value="1">관제사 오류</option>
-                        <option value="2">조종사 오류</option>
-                        <option value="3">복창오류</option>
-                        <option value="4">무응답/재호출</option>
-                        <option value="5">기타</option>
+                    <label style="font-size: 16px;">오류 유형 <span style="color: var(--accent-danger);">*</span></label>
+                    <select id="reportType" style="padding: 10px; font-size: 15px;">
+                        <option value="">선택하기</option>
                     </select>
                 </div>
             </div>
 
-            <div class="form-row" style="margin-bottom: 8px;">
+            <div class="form-row" style="margin-bottom: 12px;">
                 <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                    <label>안전 영향도 <span style="color: var(--accent-danger);">*</span></label>
-                    <select id="safetyImpact" style="padding: 8px;">
+                    <label style="font-size: 16px;">세부오류유형 <span style="color: var(--accent-danger);">*</span></label>
+                    <select id="safetyImpact" style="padding: 10px; font-size: 15px;">
                         <option value="">선택하세요</option>
-                        <option value="1">경미</option>
-                        <option value="2">보통</option>
-                        <option value="3">심각</option>
                     </select>
                 </div>
                 <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                    <label>보고자 <span style="color: var(--accent-danger);">*</span></label>
+                    <label style="font-size: 16px;">보고자 <span style="color: var(--accent-danger);">*</span></label>
                     <div id="reporterWrapper">
-                        <select id="reporterSelect" style="padding: 8px; width: 100%;">
+                        <select id="reporterSelect" style="padding: 10px; font-size: 15px; width: 100%;">
                             <option value="">로딩중...</option>
                         </select>
-                        <input type="text" id="reporterInput" placeholder="이름 입력" maxlength="10" style="padding: 8px; display: none; width: 100%;">
+                        <input type="text" id="reporterInput" placeholder="이름 입력" maxlength="10" style="padding: 10px; font-size: 15px; display: none; width: 100%;">
                     </div>
                 </div>
             </div>
 
-            <div class="form-group" style="margin-bottom: 8px;">
-                <label>비고 (선택사항)</label>
-                <textarea id="reportRemark" placeholder="추가 설명 (최대 200자)" maxlength="200" style="min-height: 50px; padding: 8px;"></textarea>
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="font-size: 16px;">비고 (선택사항)</label>
+                <textarea id="reportRemark" placeholder="추가 설명 (최대 200자)" maxlength="200" style="min-height: 60px; padding: 10px; font-size: 15px;"></textarea>
             </div>
 
-            <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <button class="btn btn-ghost" style="flex: 1; padding: 10px;" onclick="closeModal()">취소</button>
-                <button class="btn btn-primary" style="flex: 1; padding: 10px;" onclick="submitReport()">보고 제출</button>
+            <div style="display: flex; gap: 12px; margin-top: 14px;">
+                <button class="btn btn-ghost" style="flex: 1; padding: 14px; font-size: 18px;" onclick="closeModal()">취소</button>
+                <button class="btn btn-primary" style="flex: 1; padding: 14px; font-size: 18px;" onclick="submitReport()">보고 제출</button>
             </div>
         </div>
     </div>

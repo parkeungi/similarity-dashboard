@@ -5,13 +5,17 @@ let REPORTER_LIST = []; // DB에서 조회한 보고자 목록
 let currentSector = localStorage.getItem('selectedSector') || 'ALL';
 let refreshInterval = null;
 let currentRefreshRate = 10000; // 현재 적용된 갱신 주기 (interval 재생성 판단용)
+let editingReport = null; // 수정 모드 시 기존 보고서 정보 { idx, originalReported }
 
 // 서버 설정 (관리자가 설정, 모든 브라우저에 동시 적용)
 let SERVER_CONFIG = {
     displaySectors: [],     // 표시할 섹터 목록 (비어있으면 전체)
     displaySimilarity: [],  // 표시할 유사도 등급 (비어있으면 전체)
     refreshRate: 10000,     // 갱신 주기 (ms)
-    maxRows: 100            // 최대 표시 건수
+    maxRows: 100,           // 최대 표시 건수
+    errorTypes: [],         // 오류유형 목록
+    errorDetailTypes: [],   // 세부오류유형 목록
+    thresholds: getRiskThresholds() // 위험도 기준값
 };
 
 // ==================== 서버 설정 관리 ====================
@@ -29,15 +33,75 @@ async function loadServerConfig() {
         }
         const result = await response.json();
         if (result.success && result.data) {
+            const oldTypes = JSON.stringify(SERVER_CONFIG.errorTypes);
+            const oldDetailTypes = JSON.stringify(SERVER_CONFIG.errorDetailTypes);
+
             SERVER_CONFIG = {
                 displaySectors: result.data.displaySectors || [],
                 displaySimilarity: result.data.displaySimilarity || [],
                 refreshRate: result.data.refreshRate || 10000,
-                maxRows: result.data.maxRows || 100
+                maxRows: result.data.maxRows || 100,
+                errorTypes: result.data.errorTypes || [],
+                errorDetailTypes: result.data.errorDetailTypes || [],
+                thresholds: result.data.thresholds || getRiskThresholds()
             };
+
+            // 섹터 맵핑 적용 (서버 설정이 common.js 기본값을 덮어씀)
+            if (result.data.sectorMap && Object.keys(result.data.sectorMap).length > 0) {
+                updateSectorConfig(result.data.sectorMap, result.data.fixedSectors || []);
+            }
+
+            // 위험도 기준값 적용
+            updateRiskThresholds(SERVER_CONFIG.thresholds);
+
+            // 설정이 변경된 경우에만 드롭다운 재생성 (선택값 유지)
+            if (oldTypes !== JSON.stringify(SERVER_CONFIG.errorTypes)) {
+                populateErrorTypes();
+            }
+            if (oldDetailTypes !== JSON.stringify(SERVER_CONFIG.errorDetailTypes)) {
+                populateErrorDetailTypes();
+            }
         }
     } catch (err) {
         console.error('서버 설정 로드 실패:', err);
+    }
+}
+
+/**
+ * 오류유형/세부오류유형 드롭다운 동적 생성 (서버 설정 기반)
+ * 오류유형 변경 시 세부오류유형이 연동 필터링됨
+ */
+function populateErrorTypes() {
+    const select = document.getElementById('reportType');
+    if (!select) return;
+    const types = SERVER_CONFIG.errorTypes || [];
+    select.innerHTML = '<option value="">선택하기</option>' +
+        types.map(t => `<option value="${t.value}">${escapeHtml(t.label)}</option>`).join('');
+
+    // 오류유형 변경 시 세부오류유형 연동
+    select.onchange = function() {
+        populateErrorDetailTypes(parseInt(this.value) || null);
+    };
+}
+
+function populateErrorDetailTypes(parentType) {
+    const select = document.getElementById('safetyImpact');
+    if (!select) return;
+    const allTypes = SERVER_CONFIG.errorDetailTypes || [];
+
+    // parentType이 지정되면 해당 유형 + 공통(parentType=0)만 표시
+    const filtered = parentType != null
+        ? allTypes.filter(t => t.parentType === parentType || t.parentType === 0 || !t.parentType)
+        : allTypes;
+
+    select.innerHTML = filtered.map(t => `<option value="${t.value}">${escapeHtml(t.label)}</option>`).join('');
+
+    // 오류유형 선택 시 첫 번째 항목 자동 선택, 미선택 시 placeholder
+    if (parentType != null && filtered.length > 0) {
+        select.value = filtered[0].value;
+    } else {
+        select.innerHTML = '<option value="">선택하세요</option>' + select.innerHTML;
+        select.value = '';
     }
 }
 
@@ -83,8 +147,9 @@ function getAirlineName(callsign) {
  * @returns {Object} 등급 텍스트 및 CSS 클래스 { text, tag }
  */
 function getSimilarityLevel(similarity) {
-    if (similarity > 2) return { text: '매우높음', tag: 'tag-danger' };
-    if (similarity > 1) return { text: '높음', tag: 'tag-warning' };
+    const band = getSimilarityBand(similarity);
+    if (band === 'critical') return { text: '매우높음', tag: 'tag-danger' };
+    if (band === 'caution') return { text: '높음', tag: 'tag-warning' };
     return { text: '보통', tag: 'tag-info' };
 }
 
@@ -98,9 +163,8 @@ function filterBySimilarity(data) {
     if (!levels || levels.length === 0) return data;
 
     return data.filter(d => {
-        if (d.SIMILARITY > 2) return levels.includes('critical');
-        if (d.SIMILARITY > 1) return levels.includes('caution');
-        return levels.includes('monitor');
+        const band = getSimilarityBand(d.SIMILARITY);
+        return levels.includes(band);
     });
 }
 
@@ -110,8 +174,9 @@ function filterBySimilarity(data) {
  * @returns {Object} 등급 텍스트 및 CSS 클래스 { text, tag }
  */
 function getRiskLevel(scorePeak) {
-    if (scorePeak >= 40) return { text: '매우높음', tag: 'tag-danger' };
-    if (scorePeak >= 20) return { text: '높음', tag: 'tag-warning' };
+    const band = getScoreBand(scorePeak);
+    if (band === 'critical') return { text: '매우높음', tag: 'tag-danger' };
+    if (band === 'caution') return { text: '높음', tag: 'tag-warning' };
     return { text: '낮음', tag: 'tag-info' };
 }
 
@@ -122,8 +187,9 @@ function getRiskLevel(scorePeak) {
  * @returns {Object} 권고사항 텍스트 및 CSS 클래스 { text, tag }
  */
 function getAction(similarity, scorePeak) {
-    if (similarity > 2 || scorePeak >= 40) return { text: '즉시조치', tag: 'tag-danger' };
-    if (similarity > 1 || scorePeak >= 20) return { text: '주의관찰', tag: 'tag-warning' };
+    const band = getRecommendationBand(similarity, scorePeak);
+    if (band === 'critical') return { text: '즉시조치', tag: 'tag-danger' };
+    if (band === 'caution') return { text: '주의관찰', tag: 'tag-warning' };
     return { text: '정상감시', tag: 'tag-info' };
 }
 
@@ -139,9 +205,10 @@ function getAction(similarity, scorePeak) {
 function calculateRiskAssessment(data) {
     // TR 행 CSS 클래스 (고위험/중위험 강조)
     let riskClass = '';
-    if (data.SIMILARITY > 2) {
+    const similarityBand = getSimilarityBand(data.SIMILARITY);
+    if (similarityBand === 'critical') {
         riskClass = 'high-risk';
-    } else if (data.SIMILARITY > 1) {
+    } else if (similarityBand === 'caution') {
         riskClass = 'med-risk';
     }
 
@@ -273,25 +340,34 @@ async function fetchWithRetry(url, options = {}, maxRetries = 3, baseDelay = 100
  */
 async function loadData() {
     try {
-        let url;
-        if (currentSector === 'ALL') {
-            // 환경설정에서 선택한 섹터만 조회 (미설정 시 고정 섹터 전체)
-            const activeSectors = SERVER_CONFIG.displaySectors.length > 0
-                ? SERVER_CONFIG.displaySectors
-                : FIXED_SECTORS;
-            url = `/api/callsigns?sectors=${activeSectors.join(',')}`;
-        } else {
-            url = `/api/callsigns?sector=${currentSector}`;
-        }
+        // 항상 전체 활성 섹터 데이터를 조회 (사이드바 건수 계산용)
+        const activeSectors = SERVER_CONFIG.displaySectors.length > 0
+            ? SERVER_CONFIG.displaySectors
+            : FIXED_SECTORS;
+        const url = `/api/callsigns?sectors=${activeSectors.join(',')}`;
 
         const response = await fetchWithRetry(url);
         const result = await response.json();
 
         if (result.success) {
-            GLOBAL_DATA = filterBySimilarity(result.data);
+            const allData = filterBySimilarity(result.data);
+            // 전체 데이터로 사이드바 섹터 건수 계산 (별도 API 호출 불필요)
+            recalculateSectorCounts(allData);
+            // 현재 섹터로 필터링
+            GLOBAL_DATA = currentSector === 'ALL'
+                ? allData
+                : allData.filter(d => String(d.CCP) === currentSector);
+            // 정렬: 즉시조치 우선, 같은 등급 내에서는 최초 검출(오래된 순)
+            GLOBAL_DATA.sort((a, b) => {
+                const aAction = getAction(a.SIMILARITY, a.SCORE_PEAK || 0).text;
+                const bAction = getAction(b.SIMILARITY, b.SCORE_PEAK || 0).text;
+                const priority = { '즉시조치': 0, '주의관찰': 1, '정상감시': 2 };
+                const diff = (priority[aAction] ?? 9) - (priority[bAction] ?? 9);
+                if (diff !== 0) return diff;
+                return (a.IDX || 0) - (b.IDX || 0);
+            });
             renderTable();
             updateNetworkStatus(true);
-            document.getElementById('last-update').textContent = new Date().toISOString().split('T')[1].split('.')[0];
         } else {
             throw new Error(result.error);
         }
@@ -314,58 +390,94 @@ function loadSectors() {
 
 /**
  * 섹터 목록 렌더링 (사이드바)
- * @param {Array} sectors - 섹터별 건수 데이터 [{ CCP, CNT }, ...]
+ * 전체 섹터 건수는 ALL_SECTOR_COUNTS에서, 현재 테이블 데이터는 GLOBAL_DATA에서 분리
  */
-function renderSectors() {
-    const container = document.getElementById('sector-list');
-    let totalCount = 0;
-    let highRiskCount = 0;
+let ALL_SECTOR_COUNTS = {}; // 전체 섹터별 유사호출부호 건수
+let ALL_HIGH_RISK_COUNT = 0;
+let CONTROL_COUNTS = {}; // 섹터별 현재 관제 건수 (ATFM)
+let ALL_SECTOR_RISK_COUNTS = {}; // 섹터별 즉시조치/주의관찰 건수
 
-    // GLOBAL_DATA(유사도 필터 적용 완료)에서 섹터별 건수 재계산
-    const filteredCounts = {};
-    GLOBAL_DATA.forEach(d => {
+/**
+ * GLOBAL_DATA에서 섹터별 건수 재계산 (API 호출 없음)
+ * 권고사항(즉시조치/주의관찰) 건수도 함께 계산
+ */
+function recalculateSectorCounts(data) {
+    ALL_SECTOR_COUNTS = {};
+    ALL_HIGH_RISK_COUNT = 0;
+    ALL_SECTOR_RISK_COUNTS = {};
+    data.forEach(d => {
         const ccp = String(d.CCP);
-        filteredCounts[ccp] = (filteredCounts[ccp] || 0) + 1;
-        if (d.SIMILARITY > 2) highRiskCount++;
+        ALL_SECTOR_COUNTS[ccp] = (ALL_SECTOR_COUNTS[ccp] || 0) + 1;
+        if (getSimilarityBand(d.SIMILARITY) === 'critical') ALL_HIGH_RISK_COUNT++;
+
+        if (!ALL_SECTOR_RISK_COUNTS[ccp]) {
+            ALL_SECTOR_RISK_COUNTS[ccp] = { immediate: 0, caution: 0 };
+        }
+        const action = getAction(d.SIMILARITY, d.SCORE_PEAK || 0);
+        if (action.text === '즉시조치') ALL_SECTOR_RISK_COUNTS[ccp].immediate++;
+        else if (action.text === '주의관찰') ALL_SECTOR_RISK_COUNTS[ccp].caution++;
     });
+}
+
+
+async function loadControlCounts() {
+    try {
+        const response = await fetchWithRetry('/api/control-counts');
+        const result = await response.json();
+        if (result.success) {
+            CONTROL_COUNTS = {};
+            result.data.forEach(d => {
+                // ATFM은 섹터 이름(GL, KL 등)을 반환 → 숫자 코드로 변환
+                const code = SECTOR_NAME_TO_CODE[d.CCP];
+                if (code) {
+                    CONTROL_COUNTS[code] = d.CNT;
+                }
+            });
+        }
+    } catch (err) {
+        console.error('관제 건수 로드 실패:', err);
+    }
+}
+
+function renderSectors() {
+    const container = document.getElementById('sector-cards');
 
     // 환경설정에서 선택한 섹터만 표시 (미설정 시 고정 섹터 전체)
     const activeSectors = SERVER_CONFIG.displaySectors.length > 0
         ? SERVER_CONFIG.displaySectors
         : FIXED_SECTORS;
     const displayList = activeSectors.map(ccp => {
-        return { CCP: ccp, CNT: filteredCounts[String(ccp)] || 0 };
+        return { CCP: ccp, CNT: ALL_SECTOR_COUNTS[String(ccp)] || 0 };
     });
 
     const html = displayList.map(s => {
-        totalCount += s.CNT;
         const isEmpty = s.CNT === 0;
         const isActive = currentSector == s.CCP;
+        const ctrlCnt = CONTROL_COUNTS[String(s.CCP)] || 0;
+        const risk = ALL_SECTOR_RISK_COUNTS[String(s.CCP)] || { immediate: 0, caution: 0 };
+
         return `
-            <div class="sector-badge ${isActive ? 'active' : ''} ${isEmpty ? 'dimmed' : ''}" onclick="filterBySector('${s.CCP}')">
-                <span class="sector-name">${getSectorName(s.CCP)}</span>
-                <span class="sector-count">${s.CNT} 건</span>
+            <div class="sector-card ${isActive ? 'active' : ''} ${isEmpty && ctrlCnt === 0 ? 'dimmed' : ''}" onclick="filterBySector('${s.CCP}')">
+                <div class="sector-card-name">${getSectorName(s.CCP)}</div>
+                <div class="sector-card-counts">
+                    <div class="sector-card-stat ctrl">
+                        <span class="sector-card-stat-value">${ctrlCnt}</span>
+                        <span class="sector-card-stat-label">관제</span>
+                    </div>
+                    <div class="sector-card-stat detect ${s.CNT > 0 ? 'has-alert' : ''}">
+                        <span class="sector-card-stat-value">${s.CNT}</span>
+                        <span class="sector-card-stat-label">검출</span>
+                    </div>
+                </div>
+                <div class="sector-card-actions">
+                    <span class="sector-card-action danger ${risk.immediate > 0 ? 'has-count' : ''}">즉시조치 ${risk.immediate}</span>
+                    <span class="sector-card-action warning ${risk.caution > 0 ? 'has-count' : ''}">주의관찰 ${risk.caution}</span>
+                </div>
             </div>
         `;
     }).join('');
 
     container.innerHTML = html;
-    document.getElementById('total-alerts').textContent = totalCount;
-    document.getElementById('high-risk-count').textContent = highRiskCount;
-
-    // 섹터별 검출 건수 요약 (세로 리스트)
-    const summaryHtml = displayList
-        .map(s => {
-            const name = getSectorName(s.CCP);
-            const cnt = s.CNT;
-            const hasData = cnt > 0;
-            return `<div class="sector-summary-row${hasData ? ' has-data' : ''}">
-                <span class="sector-summary-name">${name}</span>
-                <span class="sector-summary-cnt">${cnt}</span>
-            </div>`;
-        })
-        .join('');
-    document.getElementById('sector-summary').innerHTML = summaryHtml;
 }
 
 /**
@@ -403,7 +515,9 @@ function renderTable() {
                 <td><span class="tag ${assessment.risk.tag}">${assessment.risk.text}</span></td>
                 <td><span class="tag ${assessment.action.tag}">${assessment.action.text}</span></td>
                 <td>
-                    <button class="btn btn-sm btn-primary" style="white-space: nowrap;">보고</button>
+                    ${d.REPORT_COUNT > 0
+                        ? '<span class="btn btn-sm btn-reported" title="보고 완료됨">보고완료</span>'
+                        : '<button class="btn btn-sm btn-primary" style="white-space: nowrap;">보고</button>'}
                 </td>
             </tr>
         `;
@@ -415,9 +529,9 @@ function renderTable() {
 // 섹터 필터
 function filterBySector(sector) {
     currentSector = sector;
-    localStorage.setItem('selectedSector', sector); // 선택한 섹터 저장
+    localStorage.setItem('selectedSector', sector);
     loadData();
-    loadSectors();
+    renderSectors(); // 건수는 이미 ALL_SECTOR_COUNTS에 있으므로 렌더만
 }
 
 /**
@@ -426,7 +540,7 @@ function filterBySector(sector) {
  * @param {string} fp1 - 첫 번째 호출부호 (선택사항, 없으면 GLOBAL_DATA에서 조회)
  * @param {string} fp2 - 두 번째 호출부호 (선택사항, 없으면 GLOBAL_DATA에서 조회)
  */
-function openReportModal(idx, fp1, fp2) {
+async function openReportModal(idx, fp1, fp2) {
     // IDX로 데이터 조회 (fp1, fp2가 없는 경우 대비)
     const item = GLOBAL_DATA.find(d => d.IDX === idx);
     if (!item) {
@@ -434,13 +548,21 @@ function openReportModal(idx, fp1, fp2) {
         return;
     }
 
+    // 수정 모드 초기화
+    editingReport = null;
+
     // 호출부호 설정 (인자가 없으면 item에서 추출)
     const callsign1 = fp1 || item.FP1_CALLSIGN;
     const callsign2 = fp2 || item.FP2_CALLSIGN;
 
     document.getElementById('reportIdx').value = idx;
     document.getElementById('reportCallsign').value = `${callsign1} | ${callsign2}`;
-    document.getElementById('reportDateTime').value = new Date().toISOString().slice(0, 16);
+    // 로컬 시간 기준 보고 일시 (KST)
+    const nowLocal = new Date();
+    const localDT = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth()+1).padStart(2,'0')}-${String(nowLocal.getDate()).padStart(2,'0')}T${String(nowLocal.getHours()).padStart(2,'0')}:${String(nowLocal.getMinutes()).padStart(2,'0')}`;
+    const reportDTInput = document.getElementById('reportDateTime');
+    reportDTInput.value = localDT;
+    reportDTInput.disabled = false;
 
     // 오류 항공기 드롭다운에 실제 호출부호 표시
     const aoSelect = document.getElementById('reportAO');
@@ -448,16 +570,68 @@ function openReportModal(idx, fp1, fp2) {
         <option value="">선택하세요</option>
         <option value="1">${escapeHtml(callsign1)}</option>
         <option value="2">${escapeHtml(callsign2)}</option>
-        <option value="3">양쪽 모두</option>
+        <option value="3">${escapeHtml(callsign1)} | ${escapeHtml(callsign2)} (쌍)</option>
     `;
     aoSelect.value = '';
     document.getElementById('reportType').value = '';
-    document.getElementById('safetyImpact').value = '';
+    populateErrorDetailTypes(null); // 세부오류유형 전체 표시로 리셋
     document.getElementById('reportRemark').value = '';
 
     // 보고자 초기화
     renderReporterSelect();
     document.getElementById('reporterInput').value = '';
+
+    // 모달 제목/버튼 초기화
+    const modalTitle = document.querySelector('#reportModal .card-title');
+    if (modalTitle) modalTitle.textContent = '유사호출부호 오류 보고';
+    const submitBtn = document.querySelector('#reportModal .btn-primary[onclick*="submitReport"]');
+    if (submitBtn) submitBtn.textContent = '보고 제출';
+
+    // 보고완료 항목이면 기존 데이터 불러오기 (수정 모드)
+    if (item.REPORT_COUNT > 0) {
+        try {
+            const resp = await fetch(`/api/reports/${idx}`);
+            const result = await resp.json();
+            if (result.success && result.data) {
+                const report = result.data;
+                editingReport = { idx: idx, originalReported: report.REPORTED };
+
+                // 기존 보고 데이터로 폼 채우기 (발생일시는 PK이므로 수정 불가)
+                const dtInput = document.getElementById('reportDateTime');
+                if (report.REPORTED) {
+                    const dt = report.REPORTED.replace(' ', 'T').substring(0, 16);
+                    dtInput.value = dt;
+                }
+                dtInput.disabled = true;
+                aoSelect.value = String(report.AO || '');
+                document.getElementById('reportType').value = String(report.TYPE || '');
+                populateErrorDetailTypes(report.TYPE ? parseInt(report.TYPE) : null);
+                document.getElementById('safetyImpact').value = String(report.TYPE_DETAIL || '');
+                document.getElementById('reportRemark').value = report.REMARK === '-' ? '' : (report.REMARK || '');
+
+                // 보고자 설정
+                const select = document.getElementById('reporterSelect');
+                const input = document.getElementById('reporterInput');
+                if (report.REPORTER) {
+                    const option = Array.from(select.options).find(o => o.value === report.REPORTER);
+                    if (option) {
+                        select.value = report.REPORTER;
+                        input.style.display = 'none';
+                    } else {
+                        select.value = '__direct__';
+                        input.style.display = '';
+                        input.value = report.REPORTER;
+                    }
+                }
+
+                // 모달 제목/버튼을 수정 모드로 변경
+                if (modalTitle) modalTitle.textContent = '오류 보고서 수정';
+                if (submitBtn) submitBtn.textContent = '보고 수정';
+            }
+        } catch (err) {
+            console.error('기존 보고서 조회 실패:', err);
+        }
+    }
 
     // 검출 정보 표시 (공통 평가 함수 사용)
     const detInfo = document.getElementById('detectionInfo');
@@ -492,11 +666,11 @@ async function submitReport() {
     }
     if (!ao) { alert('오류 항공기를 선택하세요.'); return; }
     if (!errorType) { alert('오류 유형을 선택하세요.'); return; }
-    if (!impact) { alert('안전 영향도를 선택하세요.'); return; }
+    if (!impact) { alert('세부오류유형을 선택하세요.'); return; }
 
     const data = {
         idx: parseInt(document.getElementById('reportIdx').value, 10),
-        reported: document.getElementById('reportDateTime').value.replace('T', ' '),
+        reported: document.getElementById('reportDateTime').value.replace('T', ' ') + ':00',
         reporter: reporter,
         ao: parseInt(ao, 10),
         type: parseInt(errorType, 10),
@@ -504,9 +678,15 @@ async function submitReport() {
         remark: document.getElementById('reportRemark').value.trim() || '-'
     };
 
+    // 수정 모드면 originalReported 추가
+    const isEdit = !!editingReport;
+    if (isEdit) {
+        data.originalReported = editingReport.originalReported;
+    }
+
     try {
         const response = await fetch('/api/reports', {
-            method: 'POST',
+            method: isEdit ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
@@ -517,7 +697,16 @@ async function submitReport() {
         const result = await response.json();
 
         if (result.success) {
-            alert('보고가 정상적으로 접수되었습니다.');
+            // 보고 완료 즉시 반영 (다음 폴링 전 UI 업데이트)
+            if (!isEdit) {
+                const reportedItem = GLOBAL_DATA.find(d => d.IDX === data.idx);
+                if (reportedItem) {
+                    reportedItem.REPORT_COUNT = (reportedItem.REPORT_COUNT || 0) + 1;
+                }
+            }
+            renderTable();
+            alert(isEdit ? '보고서가 수정되었습니다.' : '보고가 정상적으로 접수되었습니다.');
+            editingReport = null;
             closeModal();
         } else {
             throw new Error(result.error);
@@ -645,79 +834,6 @@ async function exportToExcel() {
     }
 }
 
-// ==================== 시간대별 검출 차트 ====================
-
-// 시간대별 검출 건수 로드 및 차트 렌더링
-async function loadHourlyStats() {
-    try {
-        const response = await fetch('/api/hourly-stats');
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        const result = await response.json();
-
-        if (result.success) {
-            renderHourlyChart(result.data);
-        }
-    } catch (err) {
-        console.error('시간대별 통계 조회 실패:', err);
-    }
-}
-
-// 바 차트 렌더링
-function renderHourlyChart(data) {
-    const container = document.getElementById('hourly-chart');
-    const totalEl = document.getElementById('hourly-total');
-    const peakEl = document.getElementById('hourly-peak');
-
-    // 총 건수 표시
-    totalEl.textContent = `${data.total.toLocaleString()}건`;
-
-    // 최대값 찾기 (차트 높이 계산용)
-    const maxCount = Math.max(...data.hourly, 1);
-
-    // 피크 시간대 찾기
-    let peakHour = 0;
-    let peakCount = 0;
-    data.hourly.forEach((cnt, hour) => {
-        if (cnt > peakCount) {
-            peakCount = cnt;
-            peakHour = hour;
-        }
-    });
-
-    // 피크 시간대 표시
-    if (peakCount > 0) {
-        peakEl.innerHTML = `피크: <span style="color: var(--accent-danger); font-weight: 700;">${String(peakHour).padStart(2, '0')}:00</span> (${peakCount}건)`;
-    } else {
-        peakEl.textContent = '피크: 데이터 없음';
-    }
-
-    // Y축 라벨 생성
-    const yaxis = document.getElementById('hourly-yaxis');
-    const yMax = maxCount <= 1 ? 4 : Math.ceil(maxCount / 5) * 5;
-    const yStep = Math.max(Math.ceil(yMax / 4), 1);
-    const yLabels = [];
-    for (let i = 4; i >= 0; i--) {
-        yLabels.push(yStep * i);
-    }
-    yaxis.innerHTML = yLabels.map(v => `<span>${v}</span>`).join('');
-
-    // 바 차트 생성 (Y축 최대값 기준)
-    const barsHtml = data.hourly.map((cnt, hour) => {
-        const heightPercent = yMax > 0 ? (cnt / yMax) * 100 : 0;
-        const isPeak = cnt === peakCount && cnt > 0;
-        const tooltip = `${String(hour).padStart(2, '0')}:00 - ${cnt}건`;
-
-        const barHeight = cnt === 0 ? 0 : Math.max(heightPercent, 4);
-        return `<div class="hourly-bar ${isPeak ? 'peak' : ''}${cnt === 0 ? ' empty' : ''}"
-                     style="height: ${barHeight}%;"
-                     data-tooltip="${tooltip}"></div>`;
-    }).join('');
-
-    container.innerHTML = barsHtml;
-}
-
 // ==================== 자동 갱신 관리 ====================
 
 /**
@@ -745,9 +861,8 @@ function startAutoRefresh() {
             return; // 현재 interval 종료, 새 interval이 데이터 로드
         }
 
-        loadData();
-        loadSectors();
-        loadHourlyStats();
+        loadControlCounts().then(() => renderSectors());
+        loadData().then(() => renderSectors());
     }, currentRefreshRate);
 
     console.log(`자동 갱신 시작: ${currentRefreshRate}ms 주기`);
@@ -763,10 +878,9 @@ async function init() {
         // 서버 설정 먼저 로드 (관리자 설정 적용)
         await loadServerConfig();
 
-        await loadData();
-        await loadSectors();
+        await Promise.all([loadData(), loadControlCounts()]);
+        renderSectors();
         await loadReporters();
-        await loadHourlyStats();
 
         // ===== 이벤트 위임: 테이블 행 클릭 이벤트 =====
         // 각 행마다 onclick 속성 대신 tbody에 하나의 리스너만 등록 (메모리 효율적)
@@ -807,6 +921,15 @@ async function init() {
 // ESC 키로 모달 닫기
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+        closeModal();
+    }
+});
+
+// 모달 배경 클릭으로 닫기
+document.addEventListener('click', (e) => {
+    /** @type {HTMLElement|null} */
+    const modal = document.getElementById('reportModal');
+    if (e.target === modal) {
         closeModal();
     }
 });

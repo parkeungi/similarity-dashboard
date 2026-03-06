@@ -11,7 +11,7 @@
  * @description Oracle DB의 CCP 컬럼 값을 사람이 읽을 수 있는 섹터명으로 변환
  * @type {Object<string, string>}
  */
-const SECTOR_MAP = {
+let SECTOR_MAP = {
     '1': 'WH', '2': 'GH', '3': 'GL', '4': 'WL', '5': 'ES',
     '7': 'PH', '8': 'EL', '9': 'KH', '10': 'KL',
     '11': 'JN', '12': 'JH', '13': 'JL', '14': 'DG', '15': 'AF',
@@ -24,7 +24,139 @@ const SECTOR_MAP = {
  * @description 데이터가 0건이어도 UI에 항상 표시할 섹터 목록 (순서 유지)
  * @type {string[]}
  */
-const FIXED_SECTORS = ['3', '2', '10', '9', '11', '13', '12']; // GL, GH, KL, KH, JN, JL, JH
+let FIXED_SECTORS = ['3', '2', '10', '9', '11', '13', '12']; // GL, GH, KL, KH, JN, JL, JH
+
+/**
+ * 섹터 이름 → 섹터 코드 역방향 매핑 (ATFM 연동용)
+ * @type {Object<string, string>}
+ */
+let SECTOR_NAME_TO_CODE = {};
+Object.keys(SECTOR_MAP).forEach(code => { SECTOR_NAME_TO_CODE[SECTOR_MAP[code]] = code; });
+
+/**
+ * 서버 설정에서 불러온 섹터 맵핑으로 전역 변수를 업데이트
+ * @param {Object<string,string>} newMap  - { '코드': '이름' } 형태
+ * @param {string[]}             newFixed - 고정 표시 섹터 코드 목록
+ */
+function updateSectorConfig(newMap, newFixed) {
+    if (newMap && Object.keys(newMap).length > 0) {
+        SECTOR_MAP = newMap;
+        // 역방향 매핑 재구성
+        Object.keys(SECTOR_NAME_TO_CODE).forEach(k => delete SECTOR_NAME_TO_CODE[k]);
+        Object.keys(SECTOR_MAP).forEach(code => { SECTOR_NAME_TO_CODE[SECTOR_MAP[code]] = code; });
+    }
+    if (newFixed && newFixed.length > 0) {
+        FIXED_SECTORS = newFixed;
+    }
+}
+
+// ==================== 위험도 기준값(환경설정) ====================
+
+/**
+ * 기본 위험도 기준값
+ * @type {{ similarity: { critical: number, caution: number }, scorePeak: { critical: number, caution: number } }}
+ */
+const DEFAULT_RISK_THRESHOLDS = {
+    similarity: { critical: 2, caution: 1 },
+    scorePeak: { critical: 40, caution: 20 }
+};
+
+/**
+ * 현재 적용 중인 위험도 기준값
+ * @type {{ similarity: { critical: number, caution: number }, scorePeak: { critical: number, caution: number } }}
+ */
+let RISK_THRESHOLDS = JSON.parse(JSON.stringify(DEFAULT_RISK_THRESHOLDS));
+
+/**
+ * 위험도 기준값 정규화
+ * @param {Object} thresholds - 서버에서 내려온 기준값 객체
+ * @returns {{ similarity: { critical: number, caution: number }, scorePeak: { critical: number, caution: number } }}
+ */
+function normalizeRiskThresholds(thresholds) {
+    const simCriticalRaw = Number(thresholds?.similarity?.critical);
+    const simCautionRaw = Number(thresholds?.similarity?.caution);
+    const scoreCriticalRaw = Number(thresholds?.scorePeak?.critical);
+    const scoreCautionRaw = Number(thresholds?.scorePeak?.caution);
+
+    const normalized = {
+        similarity: {
+            critical: Number.isFinite(simCriticalRaw) ? simCriticalRaw : DEFAULT_RISK_THRESHOLDS.similarity.critical,
+            caution: Number.isFinite(simCautionRaw) ? simCautionRaw : DEFAULT_RISK_THRESHOLDS.similarity.caution
+        },
+        scorePeak: {
+            critical: Number.isFinite(scoreCriticalRaw) ? scoreCriticalRaw : DEFAULT_RISK_THRESHOLDS.scorePeak.critical,
+            caution: Number.isFinite(scoreCautionRaw) ? scoreCautionRaw : DEFAULT_RISK_THRESHOLDS.scorePeak.caution
+        }
+    };
+
+    // 임계값 순서가 잘못되면 기본값으로 복원
+    if (!(normalized.similarity.critical > normalized.similarity.caution)) {
+        normalized.similarity.critical = DEFAULT_RISK_THRESHOLDS.similarity.critical;
+        normalized.similarity.caution = DEFAULT_RISK_THRESHOLDS.similarity.caution;
+    }
+    if (!(normalized.scorePeak.critical > normalized.scorePeak.caution)) {
+        normalized.scorePeak.critical = DEFAULT_RISK_THRESHOLDS.scorePeak.critical;
+        normalized.scorePeak.caution = DEFAULT_RISK_THRESHOLDS.scorePeak.caution;
+    }
+
+    return normalized;
+}
+
+/**
+ * 위험도 기준값 갱신
+ * @param {Object} newThresholds - settings.json의 thresholds 객체
+ */
+function updateRiskThresholds(newThresholds) {
+    RISK_THRESHOLDS = normalizeRiskThresholds(newThresholds);
+}
+
+/**
+ * 현재 위험도 기준값 조회
+ * @returns {{ similarity: { critical: number, caution: number }, scorePeak: { critical: number, caution: number } }}
+ */
+function getRiskThresholds() {
+    return normalizeRiskThresholds(RISK_THRESHOLDS);
+}
+
+/**
+ * 유사도 등급(critical/caution/monitor) 계산
+ * @param {number} similarity - SIMILARITY 값
+ * @returns {'critical'|'caution'|'monitor'}
+ */
+function getSimilarityBand(similarity) {
+    const thresholds = getRiskThresholds().similarity;
+    const val = Number(similarity) || 0;
+    if (val > thresholds.critical) return 'critical';
+    if (val > thresholds.caution) return 'caution';
+    return 'monitor';
+}
+
+/**
+ * 오류가능성 등급(critical/caution/monitor) 계산
+ * @param {number} scorePeak - SCORE_PEAK 값
+ * @returns {'critical'|'caution'|'monitor'}
+ */
+function getScoreBand(scorePeak) {
+    const thresholds = getRiskThresholds().scorePeak;
+    const val = Number(scorePeak) || 0;
+    if (val >= thresholds.critical) return 'critical';
+    if (val >= thresholds.caution) return 'caution';
+    return 'monitor';
+}
+
+/**
+ * 권고사항 등급(critical/caution/monitor) 계산
+ * @param {number} similarity - SIMILARITY 값
+ * @param {number} scorePeak - SCORE_PEAK 값
+ * @returns {'critical'|'caution'|'monitor'}
+ */
+function getRecommendationBand(similarity, scorePeak) {
+    const simBand = getSimilarityBand(similarity);
+    const scoreBand = getScoreBand(scorePeak);
+    if (simBand === 'critical' || scoreBand === 'critical') return 'critical';
+    if (simBand === 'caution' || scoreBand === 'caution') return 'caution';
+    return 'monitor';
+}
 
 /**
  * 섹터 코드를 사람이 읽을 수 있는 이름으로 변환
@@ -63,17 +195,37 @@ function escapeHtml(str) {
 // ==================== 시계 및 상태 표시 ====================
 
 /**
- * UTC 시계 업데이트 함수
- * @description 화면 우측 상단의 UTC 시간 표시를 매초 갱신
+ * KST 시계 업데이트 함수
+ * @description 화면 우측 상단의 KST 시간 표시를 매초 갱신
  * @requires HTML 요소: <span id="realtime-clock">
  */
 function updateClock() {
     const now = new Date();
-    const timeStr = now.toISOString().split('T')[1].split('.')[0]; // HH:MM:SS 형식 추출
+    // KST = UTC + 9시간
+    const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    const timeStr = kst.toISOString().split('T')[1].split('.')[0]; // HH:MM:SS
     const clockElement = document.getElementById('realtime-clock');
     if (clockElement) {
         clockElement.textContent = timeStr;
     }
+}
+
+/**
+ * UTC 날짜 문자열을 KST로 변환 (프론트엔드 표시용)
+ * @param {string} utcStr - UTC 날짜 (예: '2026-03-05 06:30:00')
+ * @returns {string} KST 날짜 문자열
+ */
+function utcToKst(utcStr) {
+    if (!utcStr || utcStr === '9999-12-31 23:59:59') return utcStr;
+    const d = new Date(utcStr.replace(' ', 'T') + 'Z');
+    if (isNaN(d.getTime())) return utcStr;
+    const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+    return kst.getUTCFullYear() + '-' +
+        String(kst.getUTCMonth() + 1).padStart(2, '0') + '-' +
+        String(kst.getUTCDate()).padStart(2, '0') + ' ' +
+        String(kst.getUTCHours()).padStart(2, '0') + ':' +
+        String(kst.getUTCMinutes()).padStart(2, '0') + ':' +
+        String(kst.getUTCSeconds()).padStart(2, '0');
 }
 
 /**
