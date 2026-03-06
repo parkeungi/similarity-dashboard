@@ -160,18 +160,22 @@ router.delete('/reports/:idx/:reported', async (req, res) => {
             return res.status(400).json({ success: false, error: '유효하지 않은 IDX 값입니다.' });
         }
 
-        // reported 유효성 검증 (YYYY-MM-DD HH:MM:SS 형식)
-        const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+        // reported 유효성 검증 (YYYY-MM-DD HH:MM 또는 YYYY-MM-DD HH:MM:SS 형식)
+        const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/;
         if (!reported || !dateTimeRegex.test(reported)) {
             return res.status(400).json({ success: false, error: '유효하지 않은 보고일시 형식입니다.' });
         }
 
+        // 초가 없는 경우 :00 붙여서 정규화
+        const normalizedReported = reported.length === 16 ? reported + ':00' : reported;
+
         conn = await db.getConnection();
 
+        // 정규화된 값과 원본 값 모두 매칭 시도 (레거시 데이터 호환)
         const result = await conn.execute(`
             DELETE FROM T_SIMILAR_CALLSIGN_PAIR_REPORT
-            WHERE IDX = :idx AND REPORTED = :reported
-        `, { idx: idxNum, reported: reported }, { autoCommit: true });
+            WHERE IDX = :idx AND (REPORTED = :reported OR REPORTED = :reportedAlt)
+        `, { idx: idxNum, reported: normalizedReported, reportedAlt: reported }, { autoCommit: true });
 
         if (result.rowsAffected === 0) {
             return res.status(404).json({ success: false, error: '삭제할 보고서를 찾을 수 없습니다.' });
@@ -222,6 +226,21 @@ router.get('/callsign-stats', async (req, res) => {
     } finally {
         if (conn) await conn.close();
     }
+});
+
+// 클라이언트 우클릭 창전환 프로세스 강제 종료
+router.post('/kill-switch', (req, res) => {
+    const { exec } = require('child_process');
+    exec('taskkill /F /IM powershell.exe', (err, stdout, stderr) => {
+        if (err) {
+            // 프로세스가 없는 경우도 에러로 옴
+            if (stderr && stderr.includes('not found')) {
+                return res.json({ success: true, message: '실행 중인 프로세스가 없습니다.' });
+            }
+            return res.json({ success: true, message: '프로세스가 없거나 이미 종료되었습니다.' });
+        }
+        res.json({ success: true, message: '우클릭 창전환 프로세스가 종료되었습니다.' });
+    });
 });
 
 module.exports = router;

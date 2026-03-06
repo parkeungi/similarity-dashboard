@@ -867,6 +867,19 @@ function refreshDetailTypeParentOptions() {
 // ==================== 바로가기 다운로드 ====================
 
 /**
+ * 클라이언트 우클릭 창전환 프로세스 강제 종료
+ */
+function killSwitchProcess() {
+    if (!confirm('서버에서 모든 클라이언트의 우클릭 창전환 프로세스를 종료합니다.\n계속하시겠습니까?')) return;
+    fetch('/api/admin/kill-switch', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            alert(data.message || '처리되었습니다.');
+        })
+        .catch(() => alert('요청 실패'));
+}
+
+/**
  * 바탕화면용 바로가기 파일 다운로드
  * Edge --app 모드 브라우저 실행 + 우클릭 창전환 스크립트 동시 실행
  * @param {string} pagePath - 페이지 경로 ('/')
