@@ -52,6 +52,38 @@ function updateSectorConfig(newMap, newFixed) {
 
 // ==================== 위험도 기준값(환경설정) ====================
 
+// ==================== 항공사 매핑 ====================
+
+/**
+ * 호출부호 접두어 → 항공사명 매핑
+ * @type {Object<string, string>}
+ */
+const AIRLINE_MAP = {
+    'KAL': '대한항공', 'AAR': '아시아나', 'JJA': '제주항공', 'TWB': '티웨이',
+    'JNA': '진에어', 'ABL': '에어부산', 'ASV': '에어서울', 'EOK': '에어로케이',
+    'FGW': '플라이강원', 'HGG': '하이에어', 'ESR': '이스타',
+    'CSN': '중국남방', 'CCA': '중국국제', 'CES': '중국동방', 'CDG': '산동항공',
+    'CHH': '해남항공', 'CSZ': '심천항공', 'CXA': '하문항공', 'CSC': '사천항공',
+    'JAL': '일본항공', 'ANA': '전일본공수', 'APJ': '피치항공', 'JJP': '제트스타JP',
+    'SIA': '싱가포르항공', 'THA': '타이항공', 'VJC': '비엣젯', 'HVN': '베트남항공',
+    'CPA': '캐세이퍼시픽', 'EVA': '에바항공', 'CAL': '중화항공', 'MAS': '말레이시아',
+    'UAL': '유나이티드', 'DAL': '델타항공', 'AAL': '아메리칸', 'FDX': '페덱스',
+    'UPS': 'UPS', 'GTI': '아틀라스', 'PAC': '폴라에어', 'HYT': '중국화유'
+};
+
+/**
+ * 호출부호에서 항공사명 추출
+ * @param {string} callsign - 항공기 호출부호
+ * @returns {string} 항공사명 또는 접두어
+ */
+function getAirlineName(callsign) {
+    if (!callsign) return '-';
+    const prefix = callsign.replace(/[0-9]/g, '');
+    return AIRLINE_MAP[prefix] || prefix;
+}
+
+// ==================== 위험도 기준값 ====================
+
 /**
  * 기본 위험도 기준값
  * @type {{ similarity: { critical: number, caution: number }, scorePeak: { critical: number, caution: number } }}
@@ -259,3 +291,4 @@ if (document.getElementById('realtime-clock')) {
     updateClock(); // 즉시 1회 실행
     setInterval(updateClock, 1000); // 1초마다 갱신
 }
+

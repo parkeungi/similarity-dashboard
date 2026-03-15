@@ -1,5 +1,5 @@
 -- ============================================================
--- Similar Callsign Monitoring System - Oracle 11g Schema
+-- Similar Callsign Warning System - Oracle 11g Schema
 -- ============================================================
 -- Database: Oracle 11g XE
 -- Character Set: UTF-8

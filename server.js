@@ -135,7 +135,7 @@ async function startServer() {
         await db.initialize();
         httpServer = app.listen(PORT, () => {
             console.log('='.repeat(50));
-            console.log('  유사호출부호 모니터링 시스템 시작');
+            console.log('  유사호출부호 경고 시스템 시작');
             console.log('='.repeat(50));
             console.log(`  관제사 화면: http://localhost:${PORT}`);
             console.log(`  관리자 화면: http://localhost:${PORT}/admin`);

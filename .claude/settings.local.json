@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(node -e \"const j=JSON.parse\\(require\\(''fs''\\).readFileSync\\(''/tmp/callsigns.json'',''utf8''\\)\\);console.log\\(''총 건수:'', j.data.length\\);console.log\\(''섹터 목록:'', [...new Set\\(j.data.map\\(d=>d.CCP\\)\\)].join\\('', ''\\)\\)\")",
-      "Bash(curl -s http://localhost:4000/api/config)"
+      "Bash(curl -s http://localhost:4000/api/config)",
+      "Bash(node --version)",
+      "Bash(where node)",
+      "Bash(curl -s \"http://localhost:4000/api/callsigns?sectors=3,2,10,9,11,13,12\")"
     ]
   }
 }

@@ -228,6 +228,53 @@ router.get('/callsign-stats', async (req, res) => {
     }
 });
 
+// Excel 내보내기용 전체 호출부호 데이터 조회 (종료된 건만, LEFT JOIN 보고서)
+router.get('/export-data', async (req, res) => {
+    let conn;
+    try {
+        conn = await db.getConnection();
+        const { from, to, sector } = req.query;
+
+        let sql = `
+            SELECT c.IDX, c.DETECTED, c.CLEARED, c.CCP,
+                   c.FP1_CALLSIGN, c.FP1_DEPT, c.FP1_DEST,
+                   c.FP2_CALLSIGN, c.FP2_DEPT, c.FP2_DEST,
+                   c.AOD_MATCH, c.FID_LEN_MATCH, c.MATCH_POS, c.MATCH_LEN,
+                   c.COMP_RAT, c.SIMILARITY, c.CTRL_PEAK, c.SCORE_PEAK,
+                   r.REPORTED, r.REPORTER, r.AO, r.TYPE, r.TYPE_DETAIL, r.REMARK
+            FROM T_SIMILAR_CALLSIGN_PAIR c
+            LEFT JOIN T_SIMILAR_CALLSIGN_PAIR_REPORT r ON r.IDX = c.IDX
+            WHERE c.CLEARED <> '9999-12-31 23:59:59'
+        `;
+
+        const binds = {};
+
+        if (from) {
+            sql += ' AND c.DETECTED >= :startDt';
+            binds.startDt = from;
+        }
+        if (to) {
+            sql += ' AND c.DETECTED <= :endDt';
+            binds.endDt = to.length === 10 ? to + ' 23:59:59' : to;
+        }
+        if (sector && sector !== 'ALL') {
+            sql += ' AND c.CCP = :sector';
+            binds.sector = sector;
+        }
+
+        sql += ' ORDER BY c.DETECTED DESC';
+
+        const result = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+
+        res.json({ success: true, data: convertRowsToKst(result.rows) });
+    } catch (err) {
+        console.error('Excel 데이터 조회 오류:', err);
+        res.status(500).json({ success: false, error: safeErrorMessage(err) });
+    } finally {
+        if (conn) await conn.close();
+    }
+});
+
 // 클라이언트 우클릭 창전환 프로세스 강제 종료
 router.post('/kill-switch', (req, res) => {
     const { exec } = require('child_process');

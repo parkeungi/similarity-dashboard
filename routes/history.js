@@ -289,6 +289,8 @@ router.get('/', async (req, res) => {
                         c.FP2_ALT,
                         c.SIMILARITY,
                         c.SCORE_PEAK,
+                        c.CTRL_PEAK,
+                        c.AOD_MATCH,
                         CASE WHEN COUNT(r.IDX) > 0 THEN 1 ELSE 0 END AS HAS_REPORT
                     FROM T_SIMILAR_CALLSIGN_PAIR c
                     LEFT JOIN T_SIMILAR_CALLSIGN_PAIR_REPORT r ON r.IDX = c.IDX
@@ -296,7 +298,7 @@ router.get('/', async (req, res) => {
                     GROUP BY c.IDX, c.DETECTED, c.CLEARED, c.CCP,
                              c.FP1_CALLSIGN, c.FP1_DEPT, c.FP1_DEST, c.FP1_EOBT, c.FP1_ALT,
                              c.FP2_CALLSIGN, c.FP2_DEPT, c.FP2_DEST, c.FP2_EOBT, c.FP2_ALT,
-                             c.SIMILARITY, c.SCORE_PEAK
+                             c.SIMILARITY, c.SCORE_PEAK, c.CTRL_PEAK, c.AOD_MATCH
                     ORDER BY c.DETECTED DESC, c.IDX DESC
                 ) a
                 WHERE ROWNUM <= :maxRow

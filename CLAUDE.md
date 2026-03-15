@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-유사호출부호 실시간 모니터링 시스템 — 항공교통관제(ATC) 유사호출부호 감지 및 오류 보고 시스템.
+유사호출부호 경고 시스템 — 항공교통관제(ATC) 유사호출부호 감지 및 오류 보고 시스템.
 Node.js + Express 서버, Oracle 11g 데이터베이스, Vanilla JS 프론트엔드. 폐쇄망(air-gapped network) 배포 대상.
 
 ## Commands
@@ -22,7 +22,7 @@ npm install        # 패키지 설치 (인터넷 환경에서만)
 
 두 개의 독립 화면이 같은 Express 서버에서 제공됨:
 
-- **관제사 화면** (`/` → `public/index.html` + `public/js/main.js`): 실시간 유사호출부호 모니터링. 서버 설정(`config/settings.json`)의 `refreshRate`마다 자동 폴링. 행 클릭으로 오류 보고서 제출.
+- **관제사 화면** (`/` → `public/index.html` + `public/js/main.js`): 실시간 유사호출부호 경고. 서버 설정(`config/settings.json`)의 `refreshRate`마다 자동 폴링. 행 클릭으로 오류 보고서 제출.
 - **관리자 화면** (`/admin` → `public/admin.html` + `public/js/admin.js`): 보고서 조회/삭제, 통계, Excel 내보내기(SheetJS), 환경설정 관리.
 
 ### Data Flow

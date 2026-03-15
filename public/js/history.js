@@ -345,7 +345,7 @@ function renderTable() {
     if (countEl) countEl.textContent = totalCount.toLocaleString();
 
     if (HISTORY_DATA.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">검출 이력이 없습니다</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="empty-state">검출 이력이 없습니다</td></tr>';
         return;
     }
 
@@ -358,11 +358,8 @@ function renderTable() {
         const riskClass = similarityDisplay.rowClass;
         const riskTag = similarityDisplay.tagHtml;
 
-        // 오류가능성 태그 (SCORE_PEAK 기준)
-        const scoreVal = d.SCORE_PEAK || 0;
-        const scoreTag = getScoreTag(scoreVal);
-
         // 권고사항 (유사도와 오류가능성 종합 판단)
+        const scoreVal = d.SCORE_PEAK || 0;
         const recommendation = getRecommendationHtml(d.SIMILARITY, scoreVal);
 
         // 시각 표시: DETECTED/CLEARED를 'MM-DD HH:MM' 형태로 단축
@@ -370,6 +367,25 @@ function renderTable() {
         const clearedStr = isActive
             ? '<span style="color: var(--accent-secondary); font-size: 11px;">활성</span>'
             : formatDateShort(d.CLEARED);
+
+        // 항공사명
+        const airline1 = getAirlineName(d.FP1_CALLSIGN);
+        const airline2 = getAirlineName(d.FP2_CALLSIGN);
+        const airlineText = airline1 === airline2 ? airline1 : airline1 + ' / ' + airline2;
+
+        // 동시관제량
+        const ctrlPeak = d.CTRL_PEAK != null ? d.CTRL_PEAK : '-';
+
+        // 공존시간(분)
+        let coexistMin = '-';
+        if (!isActive && d.DETECTED && d.CLEARED) {
+            const dt = new Date(d.DETECTED.replace(' ', 'T'));
+            const ct = new Date(d.CLEARED.replace(' ', 'T'));
+            if (!isNaN(dt) && !isNaN(ct)) coexistMin = Math.round((ct - dt) / 60000);
+        }
+
+        // 경로 (FP1 출발→도착)
+        const route = (d.FP1_DEPT && d.FP1_DEST) ? d.FP1_DEPT + '→' + d.FP1_DEST : '-';
 
         // 보고 여부
         const reportBadge = d.HAS_REPORT === 1
@@ -388,8 +404,11 @@ function renderTable() {
                         <span class="callsign-main">${escapeHtml(d.FP2_CALLSIGN) || '-'}</span>
                     </div>
                 </td>
+                <td style="font-size: 12px;">${escapeHtml(airlineText)}</td>
                 <td>${riskTag}</td>
-                <td>${scoreTag}</td>
+                <td style="text-align: center;">${ctrlPeak}</td>
+                <td style="text-align: center;">${coexistMin}${coexistMin !== '-' ? '분' : ''}</td>
+                <td style="font-size: 11px; white-space: nowrap;">${escapeHtml(route)}</td>
                 <td>${recommendation}</td>
                 <td style="text-align: center;">${reportBadge}</td>
             </tr>
@@ -865,30 +884,45 @@ function downloadExcel() {
     }
 
     // 엑셀 행 데이터 구성 (DB 컬럼 → 한글 헤더 매핑)
-    const excelData = HISTORY_DATA.map(d => ({
-        '검출시각': d.DETECTED || '',
-        '해제시각': d.CLEARED === '9999-12-31 23:59:59' ? '활성' : (d.CLEARED || ''),
-        '섹터': getSectorName(d.CCP),
-        '호출부호1': d.FP1_CALLSIGN || '',
-        '호출부호2': d.FP2_CALLSIGN || '',
-        'FP1 출발': d.FP1_DEPT || '',
-        'FP1 도착': d.FP1_DEST || '',
-        'FP1 EOBT': d.FP1_EOBT || '',
-        'FP1 고도': d.FP1_ALT || '',
-        'FP2 출발': d.FP2_DEPT || '',
-        'FP2 도착': d.FP2_DEST || '',
-        'FP2 EOBT': d.FP2_EOBT || '',
-        'FP2 고도': d.FP2_ALT || '',
-        '유사도': d.SIMILARITY != null ? d.SIMILARITY : '',
-        '오류가능성': d.SCORE_PEAK != null ? d.SCORE_PEAK : '',
-        '권고사항': (() => {
-            const band = getRecommendationBand(d.SIMILARITY, d.SCORE_PEAK || 0);
-            if (band === 'critical') return '즉시조치';
-            if (band === 'caution') return '주의관찰';
-            return '정상감시';
-        })(),
-        '보고여부': d.HAS_REPORT === 1 ? 'O' : '-'
-    }));
+    const excelData = HISTORY_DATA.map(d => {
+        const isActive = d.CLEARED === '9999-12-31 23:59:59';
+        let coexistMin = '';
+        if (!isActive && d.DETECTED && d.CLEARED) {
+            const dt = new Date(d.DETECTED.replace(' ', 'T'));
+            const ct = new Date(d.CLEARED.replace(' ', 'T'));
+            if (!isNaN(dt) && !isNaN(ct)) coexistMin = Math.round((ct - dt) / 60000);
+        }
+        return {
+            '검출시각': d.DETECTED || '',
+            '해제시각': isActive ? '활성' : (d.CLEARED || ''),
+            '섹터': getSectorName(d.CCP),
+            '호출부호1': d.FP1_CALLSIGN || '',
+            '호출부호2': d.FP2_CALLSIGN || '',
+            '항공사': (() => {
+                const a1 = getAirlineName(d.FP1_CALLSIGN);
+                const a2 = getAirlineName(d.FP2_CALLSIGN);
+                return a1 === a2 ? a1 : a1 + ' / ' + a2;
+            })(),
+            'FP1 출발': d.FP1_DEPT || '',
+            'FP1 도착': d.FP1_DEST || '',
+            'FP1 EOBT': d.FP1_EOBT || '',
+            'FP1 고도': d.FP1_ALT || '',
+            'FP2 출발': d.FP2_DEPT || '',
+            'FP2 도착': d.FP2_DEST || '',
+            'FP2 EOBT': d.FP2_EOBT || '',
+            'FP2 고도': d.FP2_ALT || '',
+            '유사도': d.SIMILARITY != null ? d.SIMILARITY : '',
+            '동시관제량': d.CTRL_PEAK != null ? d.CTRL_PEAK : '',
+            '공존시간(분)': coexistMin,
+            '권고사항': (() => {
+                const band = getRecommendationBand(d.SIMILARITY, d.SCORE_PEAK || 0);
+                if (band === 'critical') return '즉시조치';
+                if (band === 'caution') return '주의관찰';
+                return '정상감시';
+            })(),
+            '보고여부': d.HAS_REPORT === 1 ? 'O' : '-'
+        };
+    });
 
     // SheetJS 시트 및 워크북 생성
     const ws = XLSX.utils.json_to_sheet(excelData);
@@ -902,6 +936,7 @@ function downloadExcel() {
         { wch: 8  }, // 섹터
         { wch: 12 }, // 호출부호1
         { wch: 12 }, // 호출부호2
+        { wch: 20 }, // 항공사
         { wch: 8  }, // FP1 출발
         { wch: 8  }, // FP1 도착
         { wch: 10 }, // FP1 EOBT
@@ -911,7 +946,8 @@ function downloadExcel() {
         { wch: 10 }, // FP2 EOBT
         { wch: 8  }, // FP2 고도
         { wch: 8  }, // 유사도
-        { wch: 10 }, // 오류가능성
+        { wch: 12 }, // 동시관제량
+        { wch: 12 }, // 공존시간(분)
         { wch: 10 }, // 권고사항
         { wch: 8  }  // 보고여부
     ];

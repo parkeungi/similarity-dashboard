@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>유사호출부호 - 관리자</title>
+    <title>유사호출부호 경고 시스템 - 관리자</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="page-admin">
@@ -13,15 +13,9 @@
     </div>
 
     <div class="header">
-        <div class="header-left">
-            <a href="/" class="header-brand" style="text-decoration: none;">
-                <span class="brand-icon">&#9992;</span>
-                <div class="brand-text">
-                    <h1>유사호출부호 모니터링</h1>
-                    <span class="brand-sub">Similar Callsign Monitoring System</span>
-                </div>
-            </a>
-        </div>
+        <a href="/" class="header-banner" target="_top">
+            <img src="img/title_image.png" alt="유사호출부호 경고 시스템" class="header-banner-img">
+        </a>
         <div class="header-right">
             <div class="system-status">
                 <div class="status-item">
@@ -31,8 +25,8 @@
                 <div class="status-item">KST <span id="realtime-clock">00:00:00</span></div>
             </div>
             <div class="header-shortcuts">
-                <a href="/" class="header-shortcut" title="실시간 검출">&#9992;</a>
-                <a href="/history" class="header-shortcut" title="검출 이력">&#128203;</a>
+                <a href="/" class="header-shortcut text-link" title="실시간 검출">실시간 검출</a>
+                <a href="/history" class="header-shortcut text-link" title="검출 이력">검출 이력</a>
             </div>
         </div>
     </div>
@@ -412,7 +406,7 @@
     </div>
 
     <footer class="footer">
-        <span>&copy; 2025 한국공항공사 시스템정보부 &middot; 유사호출부호 모니터링 시스템 v1.0</span>
+        <span>&copy; 2025 한국공항공사 시스템정보부 &middot; 유사호출부호 경고 시스템 v1.0</span>
     </footer>
 
     <!-- 보고서 상세 보기 모달 -->

@@ -63,7 +63,7 @@ When reviewing code, you will:
 
 ## Project-Specific Considerations
 
-For this project (유사호출부호 모니터링 시스템):
+For this project (유사호출부호 경고 시스템):
 - Verify risk level logic consistency (SIMILARITY thresholds)
 - Check sector mapping (CCP column) handling
 - Validate report field values (AO, TYPE, TYPE_DETAIL enums)

@@ -1,4 +1,4 @@
-# Plan: Premium ATC Similar Callsign Monitor Redesign
+# Plan: Premium ATC Similar Callsign Warning System Redesign
 
 Redesign the existing monitoring interface to provide a high-end, professional experience for Air Traffic Controllers, while integrating real-time data loading from `similar_callsign.csv`.
 

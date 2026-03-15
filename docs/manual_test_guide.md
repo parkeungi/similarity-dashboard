@@ -1,4 +1,4 @@
-# Manual Test Guide for Similar Callsign Monitor
+# Manual Test Guide for Similar Callsign Warning System
 
 본 문서는 `simiar_callsign.html` 화면의 기능 및 디자인을 직접 테스트하기 위한 가이드입니다.
 

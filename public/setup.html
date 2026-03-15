@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>유사호출부호 모니터링 - 초기 설정</title>
+    <title>유사호출부호 경고 시스템 - 초기 설정</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -167,7 +167,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>유사호출부호 모니터링 시스템</h1>
+        <h1>유사호출부호 경고 시스템</h1>
         <p class="subtitle">초기 설정 - 도메인으로 쉽게 접속하기</p>
 
         <div id="localhost-warning" class="info-box warning" style="display: none; margin-bottom: 20px;">
@@ -294,10 +294,10 @@
             const serverIP = currentIP;
 
             const batchContent = `@echo off
-title Similar Callsign Monitor - Domain Setup
+title Similar Callsign Warning System - Domain Setup
 
 echo ============================================
-echo   Similar Callsign Monitor - Setup
+echo   Similar Callsign Warning System - Setup
 echo ============================================
 echo.
 
@@ -333,7 +333,7 @@ if %errorlevel% equ 0 (
 
 :: Add to hosts file
 echo.>> "%HOSTS_FILE%"
-echo # Similar Callsign Monitor>> "%HOSTS_FILE%"
+echo # Similar Callsign Warning System>> "%HOSTS_FILE%"
 echo %SERVER_IP%    %DOMAIN_NAME%>> "%HOSTS_FILE%"
 
 echo.

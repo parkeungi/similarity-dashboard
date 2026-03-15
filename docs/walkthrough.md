@@ -1,6 +1,6 @@
-# Walkthrough: Premium Similar Callsign Monitor
+# Walkthrough: Premium Similar Callsign Warning System
 
-I have successfully redesigned the Similar Callsign Monitor with a premium ATC aesthetic and integrated real-time CSV data loading.
+I have successfully redesigned the Similar Callsign Warning System with a premium ATC aesthetic and integrated real-time CSV data loading.
 
 ## Changes Made
 

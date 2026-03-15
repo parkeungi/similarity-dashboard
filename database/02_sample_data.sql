@@ -1,5 +1,5 @@
 -- ============================================================
--- Similar Callsign Monitoring System - Sample Data
+-- Similar Callsign Warning System - Sample Data
 -- ============================================================
 -- Oracle 11g compatible
 -- Date format: 'YYYY-MM-DD HH24:MI:SS'

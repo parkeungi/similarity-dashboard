@@ -354,66 +354,156 @@ async function deleteSelected() {
     }
 }
 
-// Excel 다운로드
-function downloadExcel() {
+// 편명유사도 등급 변환 (SIMILARITY 숫자 → 텍스트)
+function getSimilarityGrade(val) {
+    if (val == null || val === '') return '정의되지 않음';
+    const n = Number(val);
+    if (n >= 3) return '매우높음';
+    if (n >= 1) return '높음';
+    if (n >= 0.5) return '낮음';
+    return '매우낮음';
+}
+
+// 오류발생가능성 등급 변환 (SCORE_PEAK 숫자 → 텍스트)
+function getScoreGrade(val) {
+    if (val == null || val === '') return '';
+    const n = Number(val);
+    if (n >= 60) return '매우높음';
+    if (n >= 40) return '높음';
+    if (n >= 20) return '낮음';
+    return '매우낮음';
+}
+
+// 관제사권고사항 계산
+function getRecommendation(similarity, scorePeak) {
+    const sim = Number(similarity) || 0;
+    const score = Number(scorePeak) || 0;
+    if (sim >= 3 || score >= 60) return '즉시조치';
+    if (sim >= 1 || score >= 20) return '주의감시';
+    return '일반감시';
+}
+
+// 공존시간(분) 계산
+function calcCoexistMinutes(detected, cleared) {
+    if (!detected || !cleared) return '';
+    const d = new Date(detected.replace(' ', 'T'));
+    const c = new Date(cleared.replace(' ', 'T'));
+    if (isNaN(d) || isNaN(c)) return '';
+    return Math.round((c - d) / 60000);
+}
+
+// 호출부호에서 항공사 접두어 추출
+function extractAirlinePrefix(callsign) {
+    if (!callsign) return '';
+    const match = callsign.match(/^([A-Z]+)/);
+    return match ? match[1] : '';
+}
+
+// AOD_MATCH/FID_LEN_MATCH 값 변환
+function matchToText(val) {
+    if (val === 'Y' || val === 1 || val === '1') return '일치';
+    if (val === 'N' || val === 0 || val === '0') return '불일치';
+    return '';
+}
+
+// Excel 다운로드 (전체 호출부호 데이터, 샘플 형식)
+async function downloadExcel() {
     if (typeof XLSX === 'undefined') {
         alert('Excel 내보내기 라이브러리를 불러올 수 없습니다.');
         return;
     }
-    if (REPORTS_DATA.length === 0) {
-        alert('다운로드할 데이터가 없습니다.');
-        return;
+
+    // 현재 필터 조건으로 전체 데이터 조회
+    const from = document.getElementById('date-from')?.value || '';
+    const to = document.getElementById('date-to')?.value || '';
+    const sector = document.getElementById('filter-sector')?.value || '';
+
+    let url = '/api/admin/export-data?';
+    if (from) url += `from=${encodeURIComponent(from)}&`;
+    if (to) url += `to=${encodeURIComponent(to)}&`;
+    if (sector) url += `sector=${encodeURIComponent(sector)}`;
+
+    try {
+        const resp = await fetch(url);
+        const result = await resp.json();
+        if (!result.success || !result.data || result.data.length === 0) {
+            alert('다운로드할 데이터가 없습니다.');
+            return;
+        }
+
+        const rows = result.data;
+
+        // 30개 컬럼 데이터 가공
+        const excelData = rows.map(r => {
+            const fp1 = r.FP1_CALLSIGN || '';
+            const fp2 = r.FP2_CALLSIGN || '';
+            const prefix1 = extractAirlinePrefix(fp1);
+            const prefix2 = extractAirlinePrefix(fp2);
+            const hasReport = r.REPORTED ? true : false;
+
+            return {
+                '시작일시': r.DETECTED || '',
+                '종료일시': r.CLEARED || '',
+                '관할섹터명': getSectorName(r.CCP),
+                '편명1': fp1,
+                '출발공항1': r.FP1_DEPT || '',
+                '도착공항1': r.FP1_DEST || '',
+                '편명2': fp2,
+                '출발공항2': r.FP2_DEPT || '',
+                '도착공항2': r.FP2_DEST || '',
+                '편명1 | 편명2': fp1 && fp2 ? fp1 + ' | ' + fp2 : '',
+                '항공사구분': prefix1 === prefix2 ? prefix1 : (prefix1 + ' | ' + prefix2),
+                '항공사국문': '',
+                '항공사코드동일여부': matchToText(r.AOD_MATCH),
+                '편명번호길이동일여부': matchToText(r.FID_LEN_MATCH),
+                '편명번호동일숫자위치': r.MATCH_POS ?? '',
+                '편명번호동일숫자갯수': r.MATCH_LEN ?? '',
+                '편명번호동일숫자구성비율(%)': r.COMP_RAT ?? '',
+                '편명유사도': getSimilarityGrade(r.SIMILARITY),
+                '최대동시관제량': r.CTRL_PEAK ?? '',
+                '공존시간(분)': calcCoexistMinutes(r.DETECTED, r.CLEARED),
+                '오류발생가능성_점수': r.SCORE_PEAK ?? '',
+                '오류발생가능성_등급': getScoreGrade(r.SCORE_PEAK),
+                '보고여부': hasReport ? 'O' : '',
+                '관제사권고사항': getRecommendation(r.SIMILARITY, r.SCORE_PEAK),
+                '보고일시': r.REPORTED || '',
+                '보고자': r.REPORTER || '',
+                '혼돈편명': hasReport ? (r.AO === 1 ? fp1 : r.AO === 2 ? fp2 : r.AO === 3 ? fp1 + ', ' + fp2 : '') : '',
+                '오류유형': hasReport ? (TYPE_MAP[r.TYPE] || String(r.TYPE || '')) : '오류미발생',
+                '세부오류유형': hasReport ? (IMPACT_MAP[r.TYPE_DETAIL] || String(r.TYPE_DETAIL || '')) : '',
+                '비고': r.REMARK || ''
+            };
+        });
+
+        // SheetJS로 Excel 생성
+        const ws = XLSX.utils.json_to_sheet(excelData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, '유사호출부호데이터');
+
+        // 컬럼 너비 설정 (30개)
+        ws['!cols'] = [
+            { wch: 20 }, { wch: 20 }, { wch: 12 },
+            { wch: 12 }, { wch: 8 }, { wch: 8 },
+            { wch: 12 }, { wch: 8 }, { wch: 8 },
+            { wch: 22 }, { wch: 14 }, { wch: 20 },
+            { wch: 16 }, { wch: 18 },
+            { wch: 18 }, { wch: 18 }, { wch: 24 },
+            { wch: 12 }, { wch: 14 }, { wch: 12 },
+            { wch: 18 }, { wch: 18 },
+            { wch: 8 }, { wch: 14 },
+            { wch: 20 }, { wch: 8 }, { wch: 12 },
+            { wch: 12 }, { wch: 14 }, { wch: 30 }
+        ];
+
+        // 파일명 생성
+        const now = new Date();
+        const filename = `유사호출부호_데이터_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.xlsx`;
+
+        XLSX.writeFile(wb, filename);
+    } catch (err) {
+        console.error('Excel 다운로드 오류:', err);
+        alert('Excel 다운로드 중 오류가 발생했습니다.');
     }
-
-    // 데이터 가공 (T_SIMILAR_CALLSIGN_PAIR + T_SIMILAR_CALLSIGN_PAIR_REPORT JOIN 전체)
-    const excelData = REPORTS_DATA.map(r => ({
-        '검출시각': r.DETECTED || '',
-        '해제시각': r.CLEARED === '9999-12-31 23:59:59' ? '활성' : (r.CLEARED || ''),
-        'FP1_호출부호': r.FP1_CALLSIGN || '',
-        'FP1_출발': r.FP1_DEPT || '',
-        'FP1_도착': r.FP1_DEST || '',
-        'FP1_EOBT': r.FP1_EOBT || '',
-        'FP1_FID': r.FP1_FID || '',
-        'FP1_고도': r.FP1_ALT || '',
-        'FP2_호출부호': r.FP2_CALLSIGN || '',
-        'FP2_출발': r.FP2_DEPT || '',
-        'FP2_도착': r.FP2_DEST || '',
-        'FP2_EOBT': r.FP2_EOBT || '',
-        'FP2_FID': r.FP2_FID || '',
-        'FP2_고도': r.FP2_ALT || '',
-        '유사도': r.SIMILARITY ?? '',
-        '오류가능성': r.SCORE_PEAK ?? '',
-        '관제피크': r.CTRL_PEAK ?? '',
-        '비교율': r.COMP_RAT ?? '',
-        '섹터': getSectorName(r.CCP),
-        '보고일시': r.REPORTED || '',
-        '보고자': r.REPORTER || '',
-        '오류유형': TYPE_MAP[r.TYPE] || String(r.TYPE || ''),
-        '세부오류유형': IMPACT_MAP[r.TYPE_DETAIL] || String(r.TYPE_DETAIL || ''),
-        '오류항공기': AO_MAP[r.AO] || '',
-        '비고': r.REMARK || ''
-    }));
-
-    // SheetJS로 Excel 생성
-    const ws = XLSX.utils.json_to_sheet(excelData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '오류보고서');
-
-    // 컬럼 너비 설정
-    ws['!cols'] = [
-        { wch: 20 }, { wch: 12 },
-        { wch: 12 }, { wch: 6 }, { wch: 6 }, { wch: 12 }, { wch: 10 }, { wch: 6 },
-        { wch: 12 }, { wch: 6 }, { wch: 6 }, { wch: 12 }, { wch: 10 }, { wch: 6 },
-        { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 8 },
-        { wch: 8 }, { wch: 20 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 30 }
-    ];
-
-    // 파일명 생성
-    const now = new Date();
-    const filename = `유사호출부호_오류보고서_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.xlsx`;
-
-    // 다운로드
-    XLSX.writeFile(wb, filename);
 }
 
 // 오류유형/세부오류유형 설정 로드
