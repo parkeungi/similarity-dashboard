@@ -88,6 +88,7 @@ function getSettings() {
             errorTypes: Array.isArray(parsed.errorTypes) ? parsed.errorTypes : defaults.errorTypes,
             errorDetailTypes: Array.isArray(parsed.errorDetailTypes) ? parsed.errorDetailTypes : defaults.errorDetailTypes,
             thresholds: normalizeThresholds(parsed.thresholds),
+            excelGrades: parsed.excelGrades || { scoreGrade: { level4: 60, level3: 45, level2: 30 }, recommendation: { immediate: 70, caution: 40 } },
             updatedAt: parsed.updatedAt,
             updatedBy: parsed.updatedBy || 'admin'
         };
@@ -226,6 +227,7 @@ router.post('/config', (req, res) => {
             errorTypes: errorTypes !== undefined ? errorTypes : (currentSettings.errorTypes || []),
             errorDetailTypes: errorDetailTypes !== undefined ? errorDetailTypes : (currentSettings.errorDetailTypes || []),
             thresholds: thresholds !== undefined ? normalizeThresholds(thresholds) : normalizeThresholds(currentSettings.thresholds),
+            excelGrades: currentSettings.excelGrades || { scoreGrade: { level4: 60, level3: 45, level2: 30 }, recommendation: { immediate: 70, caution: 40 } },
             updatedAt: new Date().toISOString(),
             updatedBy: updatedBy || 'admin'
         };

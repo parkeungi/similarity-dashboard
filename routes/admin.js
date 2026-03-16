@@ -278,7 +278,7 @@ router.get('/export-data', async (req, res) => {
                    c.FP1_CALLSIGN, c.FP1_DEPT, c.FP1_DEST,
                    c.FP2_CALLSIGN, c.FP2_DEPT, c.FP2_DEST,
                    c.AOD_MATCH, c.FID_LEN_MATCH, c.MATCH_POS, c.MATCH_LEN,
-                   c.COMP_RAT, c.SIMILARITY, c.CTRL_PEAK, c.SCORE_PEAK,
+                   c.COMP_RAT, c.SIMILARITY, c.CTRL_PEAK, c.SCORE_PEAK, c.MARK,
                    a1.AIRLINE_NAME AS FP1_AIRLINE,
                    a2.AIRLINE_NAME AS FP2_AIRLINE,
                    r.REPORTED, r.REPORTER, r.AO, r.TYPE, r.TYPE_DETAIL, r.REMARK

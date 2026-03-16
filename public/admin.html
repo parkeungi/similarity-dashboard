@@ -28,6 +28,7 @@
             <div class="header-shortcuts">
                 <a href="/" class="header-shortcut text-link" title="실시간 검출">실시간 검출</a>
                 <a href="/history" class="header-shortcut text-link" title="검출 이력">검출 이력</a>
+                <a href="/admin" class="header-shortcut text-link active" title="보고 이력">보고 이력</a>
             </div>
         </div>
     </div>
@@ -319,11 +320,42 @@
                 </div>
             </div>
 
-            <!-- 보고서 테이블 -->
+            <!-- Excel 반출 기준표 -->
+            <div id="excel-grade-info" class="card" style="margin-bottom: 16px; display: none;">
+                <div class="card-header" style="margin-bottom: 10px;">
+                    <div class="card-title" style="margin-bottom: 0;">Excel 반출 등급 기준</div>
+                    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('excel-grade-info').style.display='none'">닫기</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 12px;">
+                    <div>
+                        <div style="font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">오류발생가능성_등급 (SCORE_PEAK)</div>
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <tr style="background: rgba(30,41,59,0.5);"><th style="padding: 4px 8px; text-align: left; border: 1px solid var(--glass-border);">등급</th><th style="padding: 4px 8px; text-align: left; border: 1px solid var(--glass-border);">조건</th></tr>
+                            <tr><td style="padding: 4px 8px; border: 1px solid var(--glass-border); color: #f87171;">매우높음</td><td style="padding: 4px 8px; border: 1px solid var(--glass-border);" id="eg-score-4">SCORE &gt; 60</td></tr>
+                            <tr><td style="padding: 4px 8px; border: 1px solid var(--glass-border); color: #fbbf24;">높음</td><td style="padding: 4px 8px; border: 1px solid var(--glass-border);" id="eg-score-3">45 &lt; SCORE ≤ 60</td></tr>
+                            <tr><td style="padding: 4px 8px; border: 1px solid var(--glass-border); color: #7dd3fc;">낮음</td><td style="padding: 4px 8px; border: 1px solid var(--glass-border);" id="eg-score-2">30 &lt; SCORE ≤ 45</td></tr>
+                            <tr><td style="padding: 4px 8px; border: 1px solid var(--glass-border); color: var(--text-muted);">매우낮음</td><td style="padding: 4px 8px; border: 1px solid var(--glass-border);" id="eg-score-1">SCORE ≤ 30</td></tr>
+                        </table>
+                    </div>
+                    <div>
+                        <div style="font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">관제사권고사항 (SCORE_PEAK)</div>
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <tr style="background: rgba(30,41,59,0.5);"><th style="padding: 4px 8px; text-align: left; border: 1px solid var(--glass-border);">권고</th><th style="padding: 4px 8px; text-align: left; border: 1px solid var(--glass-border);">조건</th></tr>
+                            <tr><td style="padding: 4px 8px; border: 1px solid var(--glass-border); color: #f87171;">즉시조치</td><td style="padding: 4px 8px; border: 1px solid var(--glass-border);" id="eg-rec-3">SCORE ≥ 70</td></tr>
+                            <tr><td style="padding: 4px 8px; border: 1px solid var(--glass-border); color: #fbbf24;">주의감시</td><td style="padding: 4px 8px; border: 1px solid var(--glass-border);" id="eg-rec-2">40 ≤ SCORE &lt; 70</td></tr>
+                            <tr><td style="padding: 4px 8px; border: 1px solid var(--glass-border); color: #7dd3fc;">일반감시</td><td style="padding: 4px 8px; border: 1px solid var(--glass-border);" id="eg-rec-1">0 &lt; SCORE &lt; 40</td></tr>
+                            <tr><td style="padding: 4px 8px; border: 1px solid var(--glass-border); color: var(--text-muted);">(빈칸)</td><td style="padding: 4px 8px; border: 1px solid var(--glass-border);">SCORE = 0</td></tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 검출 목록 테이블 -->
             <div class="card">
                 <div class="card-header">
                     <div class="card-title">검출 목록 (<span id="report-count">0</span>건)</div>
                     <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-ghost btn-sm" onclick="toggleExcelGradeInfo()">등급 기준</button>
                         <button class="btn btn-ghost btn-sm" onclick="downloadExcel()">Excel 저장</button>
                         <button class="btn btn-danger btn-sm" onclick="deleteSelected()">선택 삭제</button>
                     </div>

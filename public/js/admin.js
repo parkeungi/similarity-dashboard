@@ -1,6 +1,14 @@
 // ==================== 전역 변수 ====================
 
 let REPORTS_DATA = [];
+let FILTERED_REPORTS = []; // 유사도 등급 필터 적용된 데이터
+let DISPLAY_SIMILARITY = []; // 유사도 등급 필터 (설정에서 로드, 빈 배열 = 전체)
+
+// Excel 반출 등급 기준 (settings.json에서 동적 로드)
+let EXCEL_GRADES = {
+    scoreGrade: { level4: 60, level3: 45, level2: 30 },
+    recommendation: { immediate: 70, caution: 40 }
+};
 
 // ==================== 코드 매핑 (admin.js 전용) ====================
 
@@ -201,19 +209,36 @@ function loadSectors() {
 // ==================== UI 렌더링 ====================
 
 /**
+ * 유사도 등급 필터 적용
+ * @param {Array} data - 원본 데이터
+ * @returns {Array} 필터링된 데이터 (DISPLAY_SIMILARITY가 비어있으면 전체 반환)
+ */
+function filterReportsBySimilarity(data) {
+    if (!DISPLAY_SIMILARITY || DISPLAY_SIMILARITY.length === 0) return data;
+    return data.filter(d => {
+        const band = getSimilarityBand(d.SIMILARITY);
+        return DISPLAY_SIMILARITY.includes(band);
+    });
+}
+
+/**
  * 보고서 테이블 렌더링
  * @description REPORTS_DATA를 테이블 형태로 화면에 표시
  */
 function renderReports() {
     const tbody = document.getElementById('reports-tbody');
-    document.getElementById('report-count').textContent = REPORTS_DATA.length;
 
-    if (REPORTS_DATA.length === 0) {
+    // 유사도 등급 필터 적용
+    FILTERED_REPORTS = filterReportsBySimilarity(REPORTS_DATA);
+    const filtered = FILTERED_REPORTS;
+    document.getElementById('report-count').textContent = filtered.length;
+
+    if (filtered.length === 0) {
         tbody.innerHTML = '<tr><td colspan="9" class="empty-state">조회된 항목이 없습니다</td></tr>';
         return;
     }
 
-    const html = REPORTS_DATA.map((r, index) => {
+    const html = filtered.map((r, index) => {
         const hasReport = r.REPORTED ? true : false;
         const simBand = getSimilarityBand(r.SIMILARITY);
         const simTag = simBand === 'critical' ? 'tag-danger' : simBand === 'caution' ? 'tag-warning' : 'tag-info';
@@ -379,23 +404,45 @@ function getSimilarityGrade(val) {
     return '매우낮음';
 }
 
-// 오류발생가능성 등급 변환 (SCORE_PEAK 숫자 → 텍스트)
+// 오류발생가능성 등급 변환 (SCORE_PEAK 기준, 동적 설정)
 function getScoreGrade(val) {
     if (val == null || val === '') return '';
     const n = Number(val);
-    if (n >= 60) return '매우높음';
-    if (n >= 40) return '높음';
-    if (n >= 20) return '낮음';
+    const g = EXCEL_GRADES.scoreGrade;
+    if (n > g.level4) return '매우높음';
+    if (n > g.level3) return '높음';
+    if (n > g.level2) return '낮음';
     return '매우낮음';
 }
 
-// 관제사권고사항 계산
+// 관제사권고사항 (SCORE_PEAK 단독 기준, 동적 설정)
 function getRecommendation(similarity, scorePeak) {
-    const sim = Number(similarity) || 0;
     const score = Number(scorePeak) || 0;
-    if (sim >= 3 || score >= 60) return '즉시조치';
-    if (sim >= 1 || score >= 20) return '주의감시';
-    return '일반감시';
+    const r = EXCEL_GRADES.recommendation;
+    if (score >= r.immediate) return '즉시조치';
+    if (score >= r.caution) return '주의감시';
+    if (score > 0) return '일반감시';
+    return '';
+}
+
+// 등급 기준표 토글
+function toggleExcelGradeInfo() {
+    const el = document.getElementById('excel-grade-info');
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// 등급 기준표 UI 업데이트
+function updateExcelGradeInfoUI() {
+    const g = EXCEL_GRADES.scoreGrade;
+    const r = EXCEL_GRADES.recommendation;
+    const el = (id) => document.getElementById(id);
+    if (el('eg-score-4')) el('eg-score-4').textContent = `SCORE > ${g.level4}`;
+    if (el('eg-score-3')) el('eg-score-3').textContent = `${g.level3} < SCORE ≤ ${g.level4}`;
+    if (el('eg-score-2')) el('eg-score-2').textContent = `${g.level2} < SCORE ≤ ${g.level3}`;
+    if (el('eg-score-1')) el('eg-score-1').textContent = `SCORE ≤ ${g.level2}`;
+    if (el('eg-rec-3')) el('eg-rec-3').textContent = `SCORE ≥ ${r.immediate}`;
+    if (el('eg-rec-2')) el('eg-rec-2').textContent = `${r.caution} ≤ SCORE < ${r.immediate}`;
+    if (el('eg-rec-1')) el('eg-rec-1').textContent = `0 < SCORE < ${r.caution}`;
 }
 
 // 공존시간(분) 계산
@@ -461,7 +508,13 @@ async function downloadExcel() {
             return;
         }
 
-        const rows = result.data;
+        // 유사도 등급 필터 적용
+        const rows = filterReportsBySimilarity(result.data);
+
+        if (rows.length === 0) {
+            alert('선택된 유사도 등급에 해당하는 데이터가 없습니다.');
+            return;
+        }
 
         // 30개 컬럼 데이터 가공
         const excelData = rows.map(r => {
@@ -472,8 +525,8 @@ async function downloadExcel() {
             const hasReport = r.REPORTED ? true : false;
 
             return {
-                '시작일시': r.DETECTED || '',
-                '종료일시': r.CLEARED || '',
+                '시작일시(KST)': r.DETECTED || '',
+                '종료일시(KST)': r.CLEARED || '',
                 '관할섹터명': getSectorName(r.CCP),
                 '편명1': fp1,
                 '출발공항1': r.FP1_DEPT || '',
@@ -492,14 +545,14 @@ async function downloadExcel() {
                 '편명유사도': getSimilarityGrade(r.SIMILARITY),
                 '최대동시관제량': r.CTRL_PEAK ?? '',
                 '공존시간(분)': calcCoexistMinutes(r.DETECTED, r.CLEARED),
-                '오류발생가능성_점수': r.SCORE_PEAK ?? '',
+                '오류발생가능성': r.SCORE_PEAK ?? '',
                 '오류발생가능성_등급': getScoreGrade(r.SCORE_PEAK),
-                '보고여부': hasReport ? 'O' : '',
                 '관제사권고사항': getRecommendation(r.SIMILARITY, r.SCORE_PEAK),
-                '보고일시': r.REPORTED || '',
+                '보고여부': Number(r.MARK) === 1 ? 'O' : '',
+                '보고일시(KST)': r.REPORTED || '',
                 '보고자': r.REPORTER || '',
                 '혼돈편명': hasReport ? (r.AO === 1 ? fp1 : r.AO === 2 ? fp2 : r.AO === 3 ? fp1 + ', ' + fp2 : '') : '',
-                '오류유형': hasReport ? (TYPE_MAP[r.TYPE] || String(r.TYPE || '')) : '오류미발생',
+                '오류유형': hasReport ? (TYPE_MAP[r.TYPE] || String(r.TYPE || '')) : '',
                 '세부오류유형': hasReport ? (IMPACT_MAP[r.TYPE_DETAIL] || String(r.TYPE_DETAIL || '')) : '',
                 '비고': r.REMARK || ''
             };
@@ -546,6 +599,17 @@ async function loadErrorDetailTypes() {
         // 섹터 맵핑 적용 (서버 설정이 common.js 기본값을 덮어씀)
         if (result.data?.sectorMap && Object.keys(result.data.sectorMap).length > 0) {
             updateSectorConfig(result.data.sectorMap, result.data.fixedSectors || []);
+        }
+
+        // 유사도 등급 필터 적용
+        DISPLAY_SIMILARITY = result.data?.displaySimilarity || [];
+
+        // Excel 반출 등급 기준 적용
+        if (result.data?.excelGrades) {
+            const eg = result.data.excelGrades;
+            if (eg.scoreGrade) EXCEL_GRADES.scoreGrade = { level4: eg.scoreGrade.level4 ?? 60, level3: eg.scoreGrade.level3 ?? 45, level2: eg.scoreGrade.level2 ?? 30 };
+            if (eg.recommendation) EXCEL_GRADES.recommendation = { immediate: eg.recommendation.immediate ?? 70, caution: eg.recommendation.caution ?? 40 };
+            updateExcelGradeInfoUI();
         }
 
         // 위험도 기준값 적용
@@ -704,6 +768,7 @@ async function loadSettings() {
 
         // 유사도 체크박스
         const simLevels = data.displaySimilarity || [];
+        DISPLAY_SIMILARITY = simLevels;
         document.querySelectorAll('.similarity-checkbox').forEach(cb => {
             cb.checked = simLevels.includes(cb.value);
         });
@@ -834,8 +899,10 @@ async function saveSettings() {
             updateRiskThresholds(thresholds);
             updateThresholdHints(normalizeThresholds(thresholds));
 
+            DISPLAY_SIMILARITY = selectedSimilarity;
             alert('설정이 저장되었습니다.\n모든 관제사 화면에 즉시 적용됩니다.\n필요 시 start.bat 재시작으로도 적용됩니다.');
             loadSettings();
+            renderReports(); // 유사도 필터 변경 반영
         } else {
             throw new Error(result.error);
         }
@@ -1058,7 +1125,7 @@ function downloadShortcut(pagePath) {
 
 // 상세 보기 모달 표시
 function showReportDetail(index) {
-    const r = REPORTS_DATA[index];
+    const r = FILTERED_REPORTS[index];
     if (!r) return;
 
     const typeClass = r.TYPE === 1 ? 'tag-danger' : r.TYPE === 2 ? 'tag-warning' : 'tag-info';
