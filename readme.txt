@@ -1,5 +1,6 @@
 ================================================================================
-  유사호출부호 경고 시스템 - 설정 가이드
+  유사호출부호 경고 시스템 - 설치 및 운영 가이드
+  Similar Callsign Warning System
 ================================================================================
 
 1. 시스템 요구사항
@@ -7,109 +8,146 @@
   - Node.js v18 이상
   - Oracle 11g Database
   - Oracle Instant Client 11.2
-  - Windows OS
+  - Windows OS (폐쇄망 배포 대상)
 
-2. 폴더 구조
+2. 화면 구성
+--------------------------------------------------------------------------------
+  관제사 화면    http://localhost:4000           실시간 유사호출부호 경고
+  검출이력 화면  http://localhost:4000/history    과거 검출 데이터 조회
+  관리자 화면    http://localhost:4000/admin      보고서 관리, 통계, Excel 반출, 환경설정
+
+3. 폴더 구조
 --------------------------------------------------------------------------------
   similar_dashboard/
   ├── config/
-  │   ├── database.js      # DB 연결 설정
-  │   └── settings.json    # 환경설정 (섹터 표시 등)
+  │   ├── database.js      # DB 연결 설정 (접속 정보)
+  │   ├── settings.json    # 환경설정 (관리자 화면에서 변경 가능)
+  │   └── timeUtil.js      # UTC↔KST 시간 변환 유틸
   ├── routes/
   │   ├── api.js           # 관제사용 API
-  │   └── admin.js         # 관리자용 API
+  │   ├── admin.js         # 관리자용 API
+  │   └── history.js       # 검출이력용 API
   ├── public/
   │   ├── index.html       # 관제사 화면
   │   ├── admin.html       # 관리자 화면
+  │   ├── history.html     # 검출이력 화면
   │   ├── css/style.css    # 스타일
   │   └── js/              # JavaScript 파일
-  ├── docs/                # 문서
-  ├── node_modules/        # 라이브러리 (npm install 결과)
+  │       ├── common.js    # 공통 함수 (섹터맵, 위험도 계산 등)
+  │       ├── main.js      # 관제사 화면 로직
+  │       ├── admin.js     # 관리자 화면 로직
+  │       └── history.js   # 검출이력 화면 로직
   ├── server.js            # 서버 메인
   ├── package.json         # 패키지 정보
-  └── start.bat            # 서버 시작 배치파일
+  ├── start.bat            # 서버 시작 (자동 재시작 포함)
+  ├── start_minimized.vbs  # 최소화 실행 + 감시자
+  └── register_service.bat # 윈도우 서비스 등록
 
-3. 데이터베이스 설정
+4. 데이터베이스 설정
 --------------------------------------------------------------------------------
   설정 파일: config/database.js
 
   [Oracle Instant Client 경로]
   oracledb.initOracleClient({ libDir: 'C:\\instantclient_11_2' });
-
-  → 실제 설치 경로로 변경 필요
-  → 예: 'D:\\oracle\\instantclient_11_2'
+  → 실제 설치 경로로 변경 필요 (예: 'D:\\oracle\\instantclient_11_2')
 
   [DB 접속 정보]
   const dbConfig = {
-      user: 'cssown',           // DB 사용자명
-      password: 'cssadmin',     // DB 비밀번호
-      connectString: 'localhost:1521/XE'  // DB 주소:포트/서비스명
+      user: 'cssown',
+      password: 'cssadmin',
+      connectString: 'localhost:1521/XE'
   };
+  → 실제 DB 정보로 변경 필요 (예: '192.168.1.100:1521/ORCL')
 
-  → 실제 DB 정보로 변경 필요
-  → 예: '192.168.1.100:1521/ORCL'
-
-4. 테이블 생성
+5. 사용 테이블
 --------------------------------------------------------------------------------
-  setup_db.js 파일을 실행하거나 아래 SQL을 직접 실행:
+  [자체 테이블]
+  - T_SIMILAR_CALLSIGN_PAIR          유사호출부호 검출 데이터
+  - T_SIMILAR_CALLSIGN_PAIR_REPORT   오류 보고서
 
-  -- 유사호출부호 데이터 테이블
-  CREATE TABLE T_SIMILAR_CALLSIGN_PAIR (
-      IDX NUMBER PRIMARY KEY,
-      DETECTED VARCHAR2(30),
-      CLEARED VARCHAR2(30),
-      CCP VARCHAR2(10),
-      FP1_CALLSIGN VARCHAR2(20),
-      FP1_DEPT VARCHAR2(10),
-      FP1_DEST VARCHAR2(10),
-      FP1_EOBT VARCHAR2(10),
-      FP1_FID VARCHAR2(20),
-      FP1_ALT VARCHAR2(10),
-      FP2_CALLSIGN VARCHAR2(20),
-      FP2_DEPT VARCHAR2(10),
-      FP2_DEST VARCHAR2(10),
-      FP2_EOBT VARCHAR2(10),
-      FP2_FID VARCHAR2(20),
-      FP2_ALT VARCHAR2(10),
-      AOD_MATCH NUMBER,
-      FID_LEN_MATCH NUMBER,
-      MATCH_POS NUMBER,
-      MATCH_LEN NUMBER,
-      COMP_RAT NUMBER,
-      SIMILARITY NUMBER,
-      CTRL_PEAK NUMBER,
-      SCORE_PEAK NUMBER,
-      MARK NUMBER
-  );
+  [외부 테이블 (기존 시스템)]
+  - T_AIRLINE                        항공사 코드/국문명 (Excel 반출용)
+  - T_ARTCNT_LOG_HISTORY             관제사 로그인 이력 (보고자 조회용)
+  - ATFM_LOGIN                       관제사 ID→이름 매핑
+  - ATFM_FLIGHTPLAN                  현재 비행 항공기 (관제량 조회용)
 
-  -- 오류 보고서 테이블
-  CREATE TABLE T_SIMILAR_CALLSIGN_PAIR_REPORT (
-      IDX NUMBER NOT NULL,
-      REPORTED VARCHAR2(20) NOT NULL,
-      REPORTER VARCHAR2(2) NOT NULL,
-      AO NUMBER(1) NOT NULL,
-      TYPE NUMBER(1) NOT NULL,
-      TYPE_DETAIL NUMBER(1) NOT NULL,
-      REMARK VARCHAR2(400) DEFAULT '-' NOT NULL,
-      PRIMARY KEY (IDX, REPORTED)
-  );
+  ※ 외부 테이블이 없어도 시스템 실행에 문제 없음 (빈 결과 반환)
 
-5. 환경설정 파일
---------------------------------------------------------------------------------
-  설정 파일: config/settings.json
+6. 환경설정 (config/settings.json)
+================================================================================
 
-  {
-    "displaySectors": [],     // 표시할 섹터 (빈 배열 = 전체)
-    "refreshRate": 10000,     // 자동 갱신 주기 (밀리초)
-    "maxRows": 100,           // 최대 표시 건수
-    "updatedAt": null,        // 마지막 수정 시각
-    "updatedBy": null         // 마지막 수정자
+  관리자 화면(http://localhost:4000/admin) > 환경설정에서 대부분 변경 가능.
+  변경 즉시 모든 관제사 화면에 자동 반영됨 (서버 재시작 불필요).
+
+  아래 항목 중 [화면] 표시는 관리자 화면에서 변경 가능,
+  [수동] 표시는 settings.json을 직접 편집해야 함.
+
+  6-1. 기본 설정 [화면]
+  ---------------------------------------------------------------------------
+  displaySectors      표시할 섹터 (빈 배열 = 전체)
+  displaySimilarity   표시할 유사도 등급 (["critical"] = 매우높음만)
+                      빈 배열 = 전체 표시
+  refreshRate         자동 갱신 주기 (밀리초, 기본 10000 = 10초)
+  maxRows             최대 표시 건수 (기본 100)
+
+  6-2. 섹터 맵핑 [화면]
+  ---------------------------------------------------------------------------
+  sectorMap           DB CCP 코드 → 화면 표시명 매핑
+                      예: { "2": "GH", "3": "GL", "9": "KH" }
+  fixedSectors        항상 표시할 섹터 코드 목록 (순서 유지)
+
+  6-3. 오류유형 관리 [화면]
+  ---------------------------------------------------------------------------
+  errorTypes          오류유형 목록 (보고 모달 드롭다운)
+                      예: [{ "value": 1, "label": "관제사 오류" }]
+  errorDetailTypes    세부오류유형 (상위유형 연결)
+                      예: [{ "value": 1, "label": "동시응답", "parentType": 1 }]
+
+  6-4. 위험도 기준값 [화면]
+  ---------------------------------------------------------------------------
+  thresholds.similarity.critical    유사도 매우높음 기준 (기본: 2)
+  thresholds.similarity.caution     유사도 높음 기준 (기본: 1)
+  thresholds.scorePeak.critical     오류가능성 매우높음 기준 (기본: 40)
+  thresholds.scorePeak.caution      오류가능성 높음 기준 (기본: 20)
+
+  → 관제사 화면의 색상 구분, 권고사항 판정에 사용
+  → 관리자 화면 > 환경설정 > 기본설정 탭에서 변경
+
+  6-5. Excel 반출 등급 기준 [수동]
+  ---------------------------------------------------------------------------
+  ※ 이 설정은 관리자 화면에서 변경 불가. settings.json을 직접 편집해야 함.
+  ※ 변경 후 서버 재시작 불필요 (다음 Excel 반출 시 자동 적용).
+
+  "excelGrades": {
+    "scoreGrade": {
+      "level4": 60,     ← SCORE > 60 → "매우높음"
+      "level3": 45,     ← 45 < SCORE ≤ 60 → "높음"
+      "level2": 30      ← 30 < SCORE ≤ 45 → "낮음"
+                           SCORE ≤ 30 → "매우낮음"
+    },
+    "recommendation": {
+      "immediate": 70,  ← SCORE ≥ 70 → "즉시조치"
+      "caution": 40     ← 40 ≤ SCORE < 70 → "주의감시"
+                           0 < SCORE < 40 → "일반감시"
+                           SCORE = 0 → (빈칸)
+    }
   }
 
-  → 관리자 화면에서 설정 가능 (http://localhost:4000/admin)
-  → 모든 관제사 화면에 동시 적용됨
+  [처음 설치 시 또는 excelGrades가 없을 때]
+  settings.json에 위 내용을 "thresholds" 다음에 추가하면 됨.
+  추가하지 않으면 기본값(60/45/30, 70/40)이 자동 적용됨.
 
-6. 서버 시작
+  [등급 기준 확인 방법]
+  관리자 화면 > 검출 목록 위 "등급 기준" 버튼 클릭 → 현재 적용 중인 기준표 확인
+
+  [변경 예시]
+  오류발생가능성 등급을 20/40/60 기준으로 변경하고 싶다면:
+    "scoreGrade": { "level4": 60, "level3": 40, "level2": 20 }
+
+  권고사항을 50/80 기준으로 변경하고 싶다면:
+    "recommendation": { "immediate": 80, "caution": 50 }
+
+7. 서버 시작
 --------------------------------------------------------------------------------
   방법 1: 배치파일 실행
     start.bat 더블클릭
@@ -118,39 +156,134 @@
     cd similar_dashboard
     npm start
 
+  방법 3: 윈도우 서비스 등록 (부팅 시 자동 시작)
+    register_service.bat → 우클릭 → "관리자 권한으로 실행" (최초 1회)
+    이후 윈도우 로그인 시 자동으로 서버 시작
+
   → 서버 시작 후 접속:
     관제사 화면: http://localhost:4000
+    검출이력:    http://localhost:4000/history
     관리자 화면: http://localhost:4000/admin
 
-7. 포트 변경
+8. 서버 자동 재시작
 --------------------------------------------------------------------------------
-  설정 파일: server.js (6번째 줄)
+  [start.bat 내부 동작]
+  - Node.js 프로세스가 비정상 종료되면 5초 후 자동 재시작
+  - 포트 4000이 이미 사용 중이면 중복 실행 방지 후 종료
+  - Ctrl+C로 수동 종료 가능
 
-  const PORT = 4000;  → 원하는 포트 번호로 변경
+  [start_minimized.vbs 동작]
+  - CMD 창을 최소화 상태로 실행
+  - CMD 창이 닫혀도 5초 후 자동 재실행 (감시자 역할)
+  - server.lock 파일로 중복 실행 방지
 
-8. 폐쇄망 배포
+  [서비스 해제]
+  관리자 CMD에서 실행:
+    schtasks /delete /tn "SimilarCallsignWarningSystem" /f
+
+9. 포트 변경
+--------------------------------------------------------------------------------
+  server.js 파일 (6번째 줄):
+    const PORT = 4000;  → 원하는 포트 번호로 변경
+
+  변경 후 서버 재시작 필요.
+
+10. 폐쇄망 배포
 --------------------------------------------------------------------------------
   1) 인터넷 환경에서 npm install 실행
   2) 전체 폴더 복사 (node_modules 포함)
   3) 대상 PC에 Node.js, Oracle Instant Client 설치
-  4) config/database.js에서 DB 정보 수정
-  5) start.bat 실행
+  4) config/database.js에서 DB 접속 정보 수정
+  5) config/settings.json에서 섹터맵, 오류유형 등 환경 확인
+  6) start.bat 실행
 
-9. 문제 해결
---------------------------------------------------------------------------------
+  ※ 부분 배포 (소스 업데이트) 시:
+  - 변경된 파일만 덮어쓰기
+  - routes/ 또는 server.js 변경 시 → 서버 재시작 필요
+  - public/ 변경 시 → 브라우저 새로고침(Ctrl+F5)만 하면 됨
+
+11. Excel 반출 기능
+================================================================================
+
+  관리자 화면 > 기간 검색 > "Excel 저장" 버튼으로 반출.
+  종료된 검출 건 전체를 30개 컬럼으로 출력함.
+
+  [출력 컬럼 (30개)]
+  시작일시(KST), 종료일시(KST), 관할섹터명, 편명1, 출발공항1, 도착공항1,
+  편명2, 출발공항2, 도착공항2, 편명1|편명2, 항공사구분, 항공사국문,
+  항공사코드동일여부, 편명번호길이동일여부, 편명번호동일숫자위치,
+  편명번호동일숫자갯수, 편명번호동일숫자구성비율(%), 편명유사도,
+  최대동시관제량, 공존시간(분), 오류발생가능성, 오류발생가능성_등급,
+  관제사권고사항, 보고여부, 보고일시(KST), 보고자, 혼돈편명,
+  오류유형, 세부오류유형, 비고
+
+  [등급 변환 규칙]
+  - 오류발생가능성_등급: SCORE_PEAK 기준 (settings.json excelGrades로 변경 가능)
+  - 관제사권고사항: SCORE_PEAK 기준 (settings.json excelGrades로 변경 가능)
+  - 편명유사도: SIMILARITY 기준 (≥3 매우높음, ≥1 높음, ≥0.5 낮음, <0.5 매우낮음)
+  - 보고여부: MARK 컬럼 기준 (1=O, 0=빈칸)
+  - 편명번호동일숫자위치: MATCH_POS 기준 (0=전체, 1=앞뒤, 2=앞, 3=뒤, 4=가운데)
+
+  [항공사국문이 빈칸일 때]
+  - T_AIRLINE 테이블에 해당 호출부호 접두어의 AIRLINE_NAME이 없는 경우
+  - T_AIRLINE 테이블에 데이터 추가 필요 (CALLSIGN, AIRLINE_NAME 컬럼)
+  - 예: INSERT INTO T_AIRLINE (CALLSIGN, AIRLINE_NAME) VALUES ('SJX', '스타럭스 항공');
+
+  [데이터가 0건일 때]
+  - 조회 기간 내 종료된(CLEARED ≠ 9999-12-31) 검출 건이 없는 경우
+  - 기간을 넓혀서 다시 검색
+  - 현재 활성(실시간 감시 중) 건은 Excel 반출 대상에서 제외됨
+
+12. 문제 해결
+================================================================================
+
+  [서버가 시작되지 않음]
+  - Node.js 설치 확인: cmd에서 node -v 실행
+  - node_modules 폴더 존재 확인
+  - 포트 4000 사용 여부 확인: netstat -aon | findstr :4000
+
   [Oracle 연결 오류]
-  - Oracle Instant Client 경로 확인
+  - Oracle Instant Client 경로 확인 (config/database.js)
   - DB 서비스 실행 여부 확인
   - 방화벽 1521 포트 확인
-
-  [포트 사용 중 오류]
-  - 기존 node 프로세스 종료 후 재시작
-  - 또는 server.js에서 포트 변경
+  - DB 접속 정보(user/password/connectString) 확인
 
   [화면이 안 보임]
   - 브라우저 캐시 삭제 (Ctrl+F5)
-  - 개발자 도구(F12)에서 콘솔 오류 확인
+  - 개발자 도구(F12) > Console에서 오류 확인
+  - 서버 CMD 창에서 에러 메시지 확인
+
+  [포트 사용 중 오류 (EADDRINUSE)]
+  - 기존 node 프로세스 종료: taskkill /F /IM node.exe
+  - 또는 server.js에서 포트 번호 변경
+
+  [환경설정이 저장되지 않음]
+  - config/settings.json 파일 쓰기 권한 확인
+  - 파일이 읽기 전용이면 속성에서 읽기 전용 해제
+
+  [Excel 반출 시 항공사국문이 빈칸]
+  - T_AIRLINE 테이블에 AIRLINE_NAME이 NULL인 항목
+  - DB에서 직접 UPDATE하거나 INSERT로 추가
+
+  [보고자 목록이 비어있음]
+  - T_ARTCNT_LOG_HISTORY 또는 ATFM_LOGIN 테이블 접근 불가
+  - 외부 테이블이므로 해당 시스템 관리자에게 문의
+  - 보고자는 직접 입력으로도 사용 가능
+
+  [서비스 등록 후 자동 시작이 안 됨]
+  - register_service.bat을 관리자 권한으로 실행했는지 확인
+  - 확인: schtasks /query /tn "SimilarCallsignWarningSystem"
+  - 수동 테스트: schtasks /run /tn "SimilarCallsignWarningSystem"
+
+  [서버가 자동 재시작되지 않음]
+  - start.bat 대신 start_minimized.vbs로 실행했는지 확인
+  - server.lock 파일이 남아있으면 삭제 후 재시작
+
+  [settings.json이 깨짐 (JSON 오류)]
+  - 메모장에서 settings.json을 열어 JSON 형식 확인
+  - 쉼표(,), 따옴표(""), 중괄호({}) 짝이 맞는지 확인
+  - 복구 불가 시 settings.json을 삭제하면 기본값으로 자동 생성됨
 
 ================================================================================
-  문의: 관제시스템 담당자
+  문의: 시스템정보부 (내선 555)
 ================================================================================
