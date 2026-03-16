@@ -399,11 +399,26 @@ function extractAirlinePrefix(callsign) {
     return match ? match[1] : '';
 }
 
+// 항공사국문 조합 (DB에서 조회된 AIRLINE_NAME 사용)
+function buildAirlineKorean(fp1Airline, fp2Airline, prefix1, prefix2) {
+    const name1 = fp1Airline || prefix1 || '';
+    const name2 = fp2Airline || prefix2 || '';
+    if (!name1 && !name2) return '';
+    if (name1 === name2) return name1;
+    return name1 + ' | ' + name2;
+}
+
 // AOD_MATCH/FID_LEN_MATCH 값 변환
 function matchToText(val) {
     if (val === 'Y' || val === 1 || val === '1') return '일치';
     if (val === 'N' || val === 0 || val === '0') return '불일치';
     return '';
+}
+
+// MATCH_POS 숫자 → 텍스트 변환
+function matchPosToText(val) {
+    const map = { 0: '전체', 1: '앞뒤', 2: '앞', 3: '뒤', 4: '가운데' };
+    return map[val] ?? '';
 }
 
 // Excel 다운로드 (전체 호출부호 데이터, 샘플 형식)
@@ -453,10 +468,10 @@ async function downloadExcel() {
                 '도착공항2': r.FP2_DEST || '',
                 '편명1 | 편명2': fp1 && fp2 ? fp1 + ' | ' + fp2 : '',
                 '항공사구분': prefix1 === prefix2 ? prefix1 : (prefix1 + ' | ' + prefix2),
-                '항공사국문': '',
+                '항공사국문': buildAirlineKorean(r.FP1_AIRLINE, r.FP2_AIRLINE, prefix1, prefix2),
                 '항공사코드동일여부': matchToText(r.AOD_MATCH),
                 '편명번호길이동일여부': matchToText(r.FID_LEN_MATCH),
-                '편명번호동일숫자위치': r.MATCH_POS ?? '',
+                '편명번호동일숫자위치': matchPosToText(r.MATCH_POS),
                 '편명번호동일숫자갯수': r.MATCH_LEN ?? '',
                 '편명번호동일숫자구성비율(%)': r.COMP_RAT ?? '',
                 '편명유사도': getSimilarityGrade(r.SIMILARITY),

@@ -241,8 +241,12 @@ router.get('/export-data', async (req, res) => {
                    c.FP2_CALLSIGN, c.FP2_DEPT, c.FP2_DEST,
                    c.AOD_MATCH, c.FID_LEN_MATCH, c.MATCH_POS, c.MATCH_LEN,
                    c.COMP_RAT, c.SIMILARITY, c.CTRL_PEAK, c.SCORE_PEAK,
+                   a1.AIRLINE_NAME AS FP1_AIRLINE,
+                   a2.AIRLINE_NAME AS FP2_AIRLINE,
                    r.REPORTED, r.REPORTER, r.AO, r.TYPE, r.TYPE_DETAIL, r.REMARK
             FROM T_SIMILAR_CALLSIGN_PAIR c
+            LEFT JOIN T_AIRLINE a1 ON a1.CALLSIGN = REGEXP_REPLACE(c.FP1_CALLSIGN, '[0-9].*', '') AND a1.AIRLINE_NAME IS NOT NULL
+            LEFT JOIN T_AIRLINE a2 ON a2.CALLSIGN = REGEXP_REPLACE(c.FP2_CALLSIGN, '[0-9].*', '') AND a2.AIRLINE_NAME IS NOT NULL
             LEFT JOIN T_SIMILAR_CALLSIGN_PAIR_REPORT r ON r.IDX = c.IDX
             WHERE c.CLEARED <> '9999-12-31 23:59:59'
         `;

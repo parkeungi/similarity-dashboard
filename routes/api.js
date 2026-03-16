@@ -319,13 +319,35 @@ router.get('/sectors', async (req, res) => {
 });
 
 // 현재 로그인 사용자 목록 조회 (보고자 선택용)
-// NOTE: SYSDATE는 DB 서버 로컬 시간(KST) 기준. CREAT_DT도 KST 저장.
-//       오늘 06:00~22:00 KST 범위의 로그인 사용자를 조회.
+// T_ARTCNT_LOG_HISTORY에서 로그인 - 로그아웃 MINUS로 현재 접속 중인 관제사 조회
+// ATFM_LOGIN에서 ARTCNT_ID → USER_NAME 매핑
 router.get('/reporters', async (req, res) => {
     let conn;
     try {
         conn = await db.getConnection();
 
+        const result = await conn.execute(`
+            SELECT
+                (SELECT USER_NAME FROM ATFM_LOGIN B WHERE A.ARTCNT_ID = B.COLNAME) AS USER_NM
+            FROM (
+                SELECT ARTCNT_ID, HIST_CN
+                FROM T_ARTCNT_LOG_HISTORY
+                WHERE CREAT_DT BETWEEN TO_CHAR(SYSDATE + 8/24 - 5/24/60, 'YYYY-MM-DD HH24:MI:SS')
+                                       AND TO_CHAR(SYSDATE + 9/24, 'YYYY-MM-DD HH24:MI:SS')
+                AND ARTCNT_ID NOT LIKE 'UK' AND OCCURRENCE < 40
+                AND HIST_CN = 'Logged in'
+                MINUS
+                SELECT ARTCNT_ID, HIST_CN
+                FROM T_ARTCNT_LOG_HISTORY
+                WHERE CREAT_DT BETWEEN TO_CHAR(SYSDATE + 8/24 - 5/24/60, 'YYYY-MM-DD HH24:MI:SS')
+                                       AND TO_CHAR(SYSDATE + 9/24, 'YYYY-MM-DD HH24:MI:SS')
+                AND ARTCNT_ID NOT LIKE 'UK' AND OCCURRENCE < 40
+                AND HIST_CN = 'Logged out'
+            ) A
+            WHERE LENGTH(ARTCNT_ID) = 2
+            ORDER BY USER_NM
+        `, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        /* 기존 쿼리 (A_REALTIME_LOGIN 테이블 사용)
         const result = await conn.execute(`
             SELECT USER_NM FROM A_REALTIME_LOGIN
             WHERE CREAT_DT BETWEEN TO_CHAR(TRUNC(SYSDATE) + 6/24, 'YYYY-MM-DD HH24:MI:SS')
@@ -333,6 +355,7 @@ router.get('/reporters', async (req, res) => {
             AND ISTERM IS NULL
             ORDER BY USER_NM
         `, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        */
 
         res.json({ success: true, data: result.rows });
     } catch (err) {
