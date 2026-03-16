@@ -2,49 +2,27 @@ const express = require('express');
 const router = express.Router();
 const oracledb = require('oracledb');
 const fs = require('fs');
-const path = require('path');
 const db = require('../config/database');
-const { kstToUtc, convertRowsToKst, getKstToday } = require('../config/timeUtil');
+const { kstToUtc, utcToKst, convertRowsToKst, getKstToday, getKstNow, getSeasonalLookback } = require('../config/timeUtil');
+const { getCachedSettings, invalidateCache, normalizeThresholds, SETTINGS_PATH } = require('../config/settingsCache');
+
+// Oracle 쿼리 타임아웃 (30초) - Oracle 11g Thick에서는 callTimeout 미지원
+// JS 레벨 Promise.race로 구현
+const QUERY_TIMEOUT = 30000;
+
+function executeWithTimeout(conn, sql, binds, options) {
+    return Promise.race([
+        conn.execute(sql, binds, options),
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('쿼리 타임아웃 (30초 초과)')), QUERY_TIMEOUT)
+        )
+    ]);
+}
 
 // 에러 메시지 안전하게 처리 (내부 정보 노출 방지)
 function safeErrorMessage(err) {
     console.error('Error:', err); // 서버 로그에만 상세 기록
     return '요청 처리 중 오류가 발생했습니다.';
-}
-
-// 설정 파일 경로
-const SETTINGS_PATH = path.join(__dirname, '..', 'config', 'settings.json');
-
-/** 기본 위험도 기준값 */
-const DEFAULT_THRESHOLDS = {
-    similarity: { critical: 2, caution: 1 },
-    scorePeak: { critical: 40, caution: 20 }
-};
-
-function normalizeThresholds(thresholds) {
-    const simCriticalRaw = Number(thresholds?.similarity?.critical);
-    const simCautionRaw = Number(thresholds?.similarity?.caution);
-    const scoreCriticalRaw = Number(thresholds?.scorePeak?.critical);
-    const scoreCautionRaw = Number(thresholds?.scorePeak?.caution);
-
-    const normalized = {
-        similarity: {
-            critical: Number.isFinite(simCriticalRaw) ? simCriticalRaw : DEFAULT_THRESHOLDS.similarity.critical,
-            caution: Number.isFinite(simCautionRaw) ? simCautionRaw : DEFAULT_THRESHOLDS.similarity.caution
-        },
-        scorePeak: {
-            critical: Number.isFinite(scoreCriticalRaw) ? scoreCriticalRaw : DEFAULT_THRESHOLDS.scorePeak.critical,
-            caution: Number.isFinite(scoreCautionRaw) ? scoreCautionRaw : DEFAULT_THRESHOLDS.scorePeak.caution
-        }
-    };
-
-    if (!(normalized.similarity.critical > normalized.similarity.caution)) {
-        normalized.similarity = DEFAULT_THRESHOLDS.similarity;
-    }
-    if (!(normalized.scorePeak.critical > normalized.scorePeak.caution)) {
-        normalized.scorePeak = DEFAULT_THRESHOLDS.scorePeak;
-    }
-    return normalized;
 }
 
 function getDefaultSettings() {
@@ -70,12 +48,12 @@ function getDefaultSettings() {
     };
 }
 
-// 설정 읽기
+// 설정 읽기 (mtime 기반 캐싱)
 function getSettings() {
     const defaults = getDefaultSettings();
     try {
-        const data = fs.readFileSync(SETTINGS_PATH, 'utf8');
-        const parsed = JSON.parse(data);
+        const parsed = getCachedSettings();
+        if (!parsed) return defaults;
         return {
             displaySectors: Array.isArray(parsed.displaySectors) ? parsed.displaySectors : defaults.displaySectors,
             displaySimilarity: Array.isArray(parsed.displaySimilarity) ? parsed.displaySimilarity : defaults.displaySimilarity,
@@ -99,32 +77,40 @@ function getSettings() {
 }
 
 /**
- * 유사도 필터 SQL 조건 생성
+ * 유사도 필터 SQL 조건 생성 (바인드 변수 사용)
  * @param {string[]} displaySimilarity - ['critical', 'caution', 'monitor']
+ * @param {Object} thresholds - 위험도 기준값
+ * @param {Object} binds - 바인드 변수 객체 (이 함수가 직접 추가)
+ * @param {string} [colPrefix=''] - 컬럼 접두어 (예: 'T.' 또는 'c.')
  * @returns {string} SQL WHERE 조건 (빈 배열이면 빈 문자열)
  */
-function buildSimilarityFilter(displaySimilarity, thresholds) {
+function buildSimilarityFilter(displaySimilarity, thresholds, binds = {}, colPrefix = '') {
     if (!displaySimilarity || displaySimilarity.length === 0) {
         return ''; // 필터 없음 = 전체 표시
     }
 
     const simThresholds = normalizeThresholds(thresholds).similarity;
     const conditions = [];
+    const col = colPrefix + 'SIMILARITY';
+    let needCritical = false, needCaution = false;
 
-    // critical (매우높음): SIMILARITY > critical
     if (displaySimilarity.includes('critical')) {
-        conditions.push(`SIMILARITY > ${simThresholds.critical}`);
+        conditions.push(`${col} > :simCritical`);
+        needCritical = true;
     }
-
-    // caution (높음): SIMILARITY > caution AND SIMILARITY <= critical
     if (displaySimilarity.includes('caution')) {
-        conditions.push(`(SIMILARITY > ${simThresholds.caution} AND SIMILARITY <= ${simThresholds.critical})`);
+        conditions.push(`(${col} > :simCaution AND ${col} <= :simCritical)`);
+        needCritical = true;
+        needCaution = true;
+    }
+    if (displaySimilarity.includes('monitor')) {
+        conditions.push(`${col} <= :simCaution`);
+        needCaution = true;
     }
 
-    // monitor (보통): SIMILARITY <= caution
-    if (displaySimilarity.includes('monitor')) {
-        conditions.push(`SIMILARITY <= ${simThresholds.caution}`);
-    }
+    // SQL에서 실제 참조되는 바인드만 추가 (미사용 바인드 → ORA-01036)
+    if (needCritical) binds.simCritical = simThresholds.critical;
+    if (needCaution) binds.simCaution = simThresholds.caution;
 
     if (conditions.length === 0) {
         return '';
@@ -133,9 +119,10 @@ function buildSimilarityFilter(displaySimilarity, thresholds) {
     return ' AND (' + conditions.join(' OR ') + ')';
 }
 
-// 설정 저장
+// 설정 저장 (캐시 무효화 포함)
 function saveSettings(settings) {
     fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8');
+    invalidateCache();
 }
 
 // 환경설정 조회
@@ -247,28 +234,31 @@ router.get('/callsigns', async (req, res) => {
         const sector = req.query.sector;
         const sectors = req.query.sectors; // 다중 섹터 (쉼표 구분)
 
-        // 유사도 필터 조건 생성
-        const similarityFilter = buildSimilarityFilter(settings.displaySimilarity, settings.thresholds);
+        const binds = {};
 
-        // 활성 데이터만 조회 (CLEARED = 9999) + 보고 여부 서브쿼리
+        // 유사도 필터 조건 생성 (바인드 변수 방식)
+        const similarityFilter = buildSimilarityFilter(settings.displaySimilarity, settings.thresholds, binds, 'T.');
+
+        // 활성 데이터만 조회 (CLEARED = 9999) + LEFT JOIN으로 보고 건수
         let sql = `
             SELECT T.IDX, T.DETECTED, T.CLEARED, T.CCP,
                    T.FP1_CALLSIGN, T.FP1_DEPT, T.FP1_DEST, T.FP1_EOBT, T.FP1_FID, T.FP1_ALT,
                    T.FP2_CALLSIGN, T.FP2_DEPT, T.FP2_DEST, T.FP2_EOBT, T.FP2_FID, T.FP2_ALT,
                    T.AOD_MATCH, T.FID_LEN_MATCH, T.MATCH_POS, T.MATCH_LEN,
                    T.COMP_RAT, T.SIMILARITY, T.CTRL_PEAK, T.SCORE_PEAK, T.MARK,
-                   (SELECT COUNT(*) FROM T_SIMILAR_CALLSIGN_PAIR_REPORT R WHERE R.IDX = T.IDX) AS REPORT_COUNT
+                   NVL(R.RCNT, 0) AS REPORT_COUNT
             FROM T_SIMILAR_CALLSIGN_PAIR T
+            LEFT JOIN (
+                SELECT IDX, COUNT(*) AS RCNT FROM T_SIMILAR_CALLSIGN_PAIR_REPORT GROUP BY IDX
+            ) R ON R.IDX = T.IDX
             WHERE T.CLEARED = '9999-12-31 23:59:59'
             ${similarityFilter}
         `;
 
-        const binds = {};
         if (sector && sector !== 'ALL') {
             sql += ' AND T.CCP = :sector';
             binds.sector = sector;
         } else if (sectors) {
-            // 다중 섹터 필터링
             const sectorList = sectors.split(',').map(s => s.trim());
             const placeholders = sectorList.map((_, i) => `:s${i}`).join(',');
             sql += ` AND T.CCP IN (${placeholders})`;
@@ -277,7 +267,11 @@ router.get('/callsigns', async (req, res) => {
 
         sql += ' ORDER BY T.DETECTED DESC';
 
-        const result = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }); // OBJECT format
+        const maxRows = settings.maxRows || 100;
+        const result = await executeWithTimeout(conn, sql, binds, {
+            outFormat: oracledb.OUT_FORMAT_OBJECT,
+            maxRows: maxRows
+        });
 
         res.json({
             success: true,
@@ -299,8 +293,9 @@ router.get('/sectors', async (req, res) => {
         conn = await db.getConnection();
         const settings = getSettings();
 
-        // 유사도 필터 조건 생성
-        const similarityFilter = buildSimilarityFilter(settings.displaySimilarity, settings.thresholds);
+        // 유사도 필터 조건 생성 (바인드 변수)
+        const sectorBinds = {};
+        const similarityFilter = buildSimilarityFilter(settings.displaySimilarity, settings.thresholds, sectorBinds);
 
         const result = await conn.execute(`
             SELECT CCP, COUNT(*) as CNT
@@ -309,7 +304,7 @@ router.get('/sectors', async (req, res) => {
             ${similarityFilter}
             GROUP BY CCP
             ORDER BY CCP
-        `, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        `, sectorBinds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
 
         res.json({ success: true, data: result.rows });
     } catch (err) {
@@ -362,7 +357,7 @@ router.get('/reporters', async (req, res) => {
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error('reporters 조회 오류:', err);
-        res.json({ success: true, data: [] });
+        res.json({ success: false, data: [], error: '보고자 목록 조회 실패' });
     } finally {
         if (conn) await conn.close();
     }
@@ -379,11 +374,11 @@ router.get('/hourly-stats', async (req, res) => {
         const utcStart = kstToUtc(todayKst + ' 00:00:00');
         const utcEnd = kstToUtc(todayKst + ' 23:59:59');
 
-        // 유사도 필터 조건 생성
-        const similarityFilter = buildSimilarityFilter(settings.displaySimilarity, settings.thresholds);
-
         // 섹터 필터 조건 생성
         const binds = { utcStart, utcEnd };
+
+        // 유사도 필터 조건 생성 (바인드 변수)
+        const similarityFilter = buildSimilarityFilter(settings.displaySimilarity, settings.thresholds, binds);
         let sectorFilter = '';
         const displaySectors = settings.displaySectors || [];
         if (displaySectors.length > 0) {
@@ -444,7 +439,7 @@ router.get('/control-counts', async (req, res) => {
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error('관제 건수 조회 오류:', err);
-        res.json({ success: true, data: [] });
+        res.json({ success: false, data: [], error: '관제 건수 조회 실패' });
     } finally {
         if (conn) await conn.close();
     }
@@ -593,6 +588,144 @@ router.post('/reports', async (req, res) => {
         res.json({ success: true, message: '보고서 저장 완료' });
     } catch (err) {
         console.error('보고서 저장 오류:', err);
+        res.status(500).json({ success: false, error: safeErrorMessage(err) });
+    } finally {
+        if (conn) await conn.close();
+    }
+});
+
+// 예측 데이터 조회 (과거 동일요일 + 다음시간대 이력 기반)
+router.get('/callsigns/predictions', async (req, res) => {
+    let conn;
+    try {
+        conn = await db.getConnection();
+        const settings = getSettings();
+        const thresholds = normalizeThresholds(settings.thresholds);
+
+        // 현재 KST 시각 계산
+        const kstNow = getKstNow();
+        const kstHour = kstNow.getUTCHours();
+        const kstMonth = kstNow.getUTCMonth() + 1;
+        const kstYear = kstNow.getUTCFullYear();
+        const nextHour = (kstHour + 1) % 24;
+
+        // 자정 경계: nextHour가 0이면 "내일"의 요일을 사용
+        const dayDate = nextHour === 0
+            ? new Date(kstNow.getTime() + 86400000)
+            : kstNow;
+
+        // 요일: Julian day MOD 7 (NLS 무관, 0=월 1=화 ... 6=일)
+        const kstJulianBase = Math.floor(dayDate.getTime() / 86400000) + 2440588;
+        const dayOfWeekMod = kstJulianBase % 7; // 0=월 ... 6=일
+
+        // 시즌별 조회 범위 계산
+        const lookback = getSeasonalLookback(kstMonth, kstYear);
+        if (lookback.length === 0) {
+            return res.json({ success: true, data: [], meta: { nextHour, dayOfWeek: dayOfWeekMod, lookback: [] } });
+        }
+
+        // 조회 범위를 날짜 범위로 변환 (UTC 기준)
+        // 각 (year, month)의 1일 00:00 KST ~ 말일 23:59 KST → UTC
+        const dateRanges = lookback.map(lb => {
+            const startKst = `${lb.year}-${String(lb.month).padStart(2, '0')}-01 00:00:00`;
+            const lastDay = new Date(lb.year, lb.month, 0).getDate();
+            const endKst = `${lb.year}-${String(lb.month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')} 23:59:59`;
+            return { start: kstToUtc(startKst), end: kstToUtc(endKst) };
+        });
+
+        // 날짜 범위 OR 조건 생성
+        const dateConditions = dateRanges.map((_, i) =>
+            `(T.DETECTED >= :rangeStart${i} AND T.DETECTED <= :rangeEnd${i})`
+        ).join(' OR ');
+
+        const binds = {};
+        dateRanges.forEach((dr, i) => {
+            binds[`rangeStart${i}`] = dr.start;
+            binds[`rangeEnd${i}`] = dr.end;
+        });
+        binds.nextHour = nextHour;
+        binds.dayMod = dayOfWeekMod;
+        binds.cautionThreshold = thresholds.similarity.caution;
+
+        // 섹터 필터 (숫자만 허용)
+        let sectorFilter = '';
+        const sectors = req.query.sectors;
+        if (sectors) {
+            const sectorList = sectors.split(',').filter(s => /^\d+$/.test(s.trim()));
+            if (sectorList.length > 0) {
+                const placeholders = sectorList.map((_, i) => `:sec${i}`).join(',');
+                sectorFilter = ` AND T.CCP IN (${placeholders})`;
+                sectorList.forEach((s, i) => { binds[`sec${i}`] = s.trim(); });
+            }
+        }
+
+        // Oracle 11g: KEEP DENSE_RANK LAST로 가장 최근 레코드의 값 추출
+        // 요일 판정: Julian day MOD 7 (NLS 무관)
+        const sql = `
+            SELECT * FROM (
+                SELECT
+                    T.FP1_CALLSIGN,
+                    T.FP2_CALLSIGN,
+                    MAX(T.CCP) KEEP (DENSE_RANK LAST ORDER BY T.DETECTED) AS CCP,
+                    MAX(T.SIMILARITY) KEEP (DENSE_RANK LAST ORDER BY T.DETECTED) AS SIMILARITY,
+                    MAX(T.SCORE_PEAK) KEEP (DENSE_RANK LAST ORDER BY T.DETECTED) AS SCORE_PEAK,
+                    MAX(T.FP1_DEPT) KEEP (DENSE_RANK LAST ORDER BY T.DETECTED) AS FP1_DEPT,
+                    MAX(T.FP1_DEST) KEEP (DENSE_RANK LAST ORDER BY T.DETECTED) AS FP1_DEST,
+                    MAX(T.FP2_DEPT) KEEP (DENSE_RANK LAST ORDER BY T.DETECTED) AS FP2_DEPT,
+                    MAX(T.FP2_DEST) KEEP (DENSE_RANK LAST ORDER BY T.DETECTED) AS FP2_DEST,
+                    MAX(T.DETECTED) AS LATEST_DETECTED,
+                    COUNT(*) AS HIST_COUNT
+                FROM T_SIMILAR_CALLSIGN_PAIR T
+                WHERE T.CLEARED <> '9999-12-31 23:59:59'
+                  AND T.SIMILARITY > :cautionThreshold
+                  AND (${dateConditions})
+                  AND TO_NUMBER(TO_CHAR(
+                      TO_DATE(T.DETECTED, 'YYYY-MM-DD HH24:MI:SS') + 9/24, 'HH24'
+                  )) = :nextHour
+                  AND MOD(
+                      TO_NUMBER(TO_CHAR(TO_DATE(T.DETECTED, 'YYYY-MM-DD HH24:MI:SS') + 9/24, 'J')),
+                      7
+                  ) = :dayMod
+                  AND NOT EXISTS (
+                      SELECT 1 FROM T_SIMILAR_CALLSIGN_PAIR A
+                      WHERE A.CLEARED = '9999-12-31 23:59:59'
+                        AND A.FP1_CALLSIGN = T.FP1_CALLSIGN
+                        AND A.FP2_CALLSIGN = T.FP2_CALLSIGN
+                  )
+                  ${sectorFilter}
+                GROUP BY T.FP1_CALLSIGN, T.FP2_CALLSIGN
+                ORDER BY COUNT(*) DESC
+            )
+            WHERE ROWNUM <= 50
+        `;
+
+        const result = await executeWithTimeout(conn, sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+
+        // LATEST_DETECTED UTC→KST 변환 (기존 유틸리티 함수 재사용)
+        const data = result.rows.map(row => {
+            if (row.LATEST_DETECTED) {
+                row.LATEST_DETECTED = utcToKst(row.LATEST_DETECTED);
+            }
+            return row;
+        });
+
+        // 요일명 매핑 (0=월 ... 6=일)
+        const dayNames = ['월', '화', '수', '목', '금', '토', '일'];
+
+        res.json({
+            success: true,
+            data: data,
+            meta: {
+                nextHour: nextHour,
+                endHour: (nextHour + 1) % 24,
+                dayOfWeek: dayOfWeekMod,
+                dayName: dayNames[dayOfWeekMod],
+                lookbackMonths: lookback
+            },
+            timestamp: new Date().toISOString()
+        });
+    } catch (err) {
+        console.error('예측 데이터 조회 오류:', err);
         res.status(500).json({ success: false, error: safeErrorMessage(err) });
     } finally {
         if (conn) await conn.close();

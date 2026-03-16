@@ -77,6 +77,13 @@ async function init() {
             loadSummary()
         ]);
 
+        // 테이블 행 클릭 이벤트 위임 (tbody에 1회만 등록)
+        document.getElementById('history-tbody').addEventListener('click', function(e) {
+            const tr = e.target.closest('tr[data-index]');
+            if (!tr) return;
+            showDetail(parseInt(tr.dataset.index, 10));
+        });
+
         // Enter 키로 필터 적용 (검색 UX 개선)
         document.querySelectorAll('#filter-from, #filter-to, #filter-sector, #filter-risk, #filter-status')
             .forEach(el => {
@@ -416,14 +423,6 @@ function renderTable() {
     }).join('');
 
     tbody.innerHTML = rows;
-
-    // 행 클릭 이벤트 바인딩 (이벤트 위임 대신 직접 바인딩으로 data-index 추적)
-    tbody.querySelectorAll('tr[data-index]').forEach(row => {
-        row.addEventListener('click', () => {
-            const index = parseInt(row.dataset.index, 10);
-            showDetail(index);
-        });
-    });
 }
 
 /**

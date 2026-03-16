@@ -97,7 +97,6 @@ async function loadReports() {
     const from = document.getElementById('filter-from').value;
     const to = document.getElementById('filter-to').value;
     const type = document.getElementById('filter-type').value;
-    const sector = document.getElementById('filter-sector').value;
     const detail = document.getElementById('filter-detail').value;
     const reported = document.getElementById('filter-reported').value;
 
@@ -107,7 +106,6 @@ async function loadReports() {
     if (from) params.push(`from=${encodeURIComponent(from)}`);
     if (to) params.push(`to=${encodeURIComponent(to + ' 23:59:59')}`);
     if (type) params.push(`type=${encodeURIComponent(type)}`);
-    if (sector && sector !== 'ALL') params.push(`sector=${encodeURIComponent(sector)}`);
     if (detail) params.push(`typeDetail=${encodeURIComponent(detail)}`);
     if (reported) params.push(`reported=${encodeURIComponent(reported)}`);
 
@@ -194,17 +192,69 @@ async function loadStats() {
  * 섹터 필터 드롭다운 로드
  * @description 고정 섹터 목록(FIXED_SECTORS)을 사용하여 필터 드롭다운 구성
  */
+// 설정에서 표시 섹터 목록 (기본 체크 대상)
+let DISPLAY_SECTORS = [];
+
 function loadSectors() {
-    const select = document.getElementById('filter-sector');
-    select.innerHTML = '<option value="ALL">전체</option>';
+    const list = document.getElementById('sector-check-list');
+    if (!list) return;
+    list.innerHTML = '';
 
     FIXED_SECTORS.forEach(ccp => {
-        const option = document.createElement('option');
-        option.value = ccp;
-        option.textContent = getSectorName(ccp);
-        select.appendChild(option);
+        const checked = DISPLAY_SECTORS.length === 0 || DISPLAY_SECTORS.includes(String(ccp));
+        list.innerHTML += `
+            <label style="display:flex;align-items:center;gap:6px;padding:5px 8px;cursor:pointer;font-size:13px;color:#e2e8f0;border-radius:4px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background=''">
+                <input type="checkbox" class="sector-filter-check" value="${ccp}" ${checked ? 'checked' : ''} onchange="updateSectorLabel();filterTableBySector()">
+                <span>${getSectorName(ccp)}</span>
+            </label>`;
     });
+    updateSectorLabel();
 }
+
+function toggleSectorDropdown() {
+    const dd = document.getElementById('sector-filter-dropdown');
+    dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleAllSectors(master) {
+    document.querySelectorAll('.sector-filter-check').forEach(cb => cb.checked = master.checked);
+    updateSectorLabel();
+    filterTableBySector();
+}
+
+function updateSectorLabel() {
+    const all = document.querySelectorAll('.sector-filter-check');
+    const checked = document.querySelectorAll('.sector-filter-check:checked');
+    const btn = document.getElementById('sector-filter-btn');
+    const master = document.getElementById('sector-check-all');
+    if (master) master.checked = (checked.length === all.length);
+
+    // select의 option 텍스트를 변경하여 표시
+    const opt = btn.querySelector('option');
+    if (checked.length === 0 || checked.length === all.length) {
+        opt.textContent = '전체';
+    } else if (checked.length <= 2) {
+        opt.textContent = Array.from(checked).map(cb => getSectorName(cb.value)).join(', ');
+    } else {
+        opt.textContent = checked.length + '개 선택됨';
+    }
+}
+
+function getSelectedSectors() {
+    const all = document.querySelectorAll('.sector-filter-check');
+    const checked = document.querySelectorAll('.sector-filter-check:checked');
+    if (checked.length === 0 || checked.length === all.length) return [];
+    return Array.from(checked).map(cb => cb.value);
+}
+
+// 드롭다운 외부 클릭 시 닫기
+document.addEventListener('click', function(e) {
+    const dd = document.getElementById('sector-filter-dropdown');
+    const btn = document.getElementById('sector-filter-btn');
+    if (dd && btn && !dd.contains(e.target) && !btn.contains(e.target)) {
+        dd.style.display = 'none';
+    }
+});
 
 // ==================== UI 렌더링 ====================
 
@@ -293,9 +343,10 @@ function applyFilter() {
 function resetFilter() {
     setDatePreset('today');
     document.getElementById('filter-type').value = '';
-    document.getElementById('filter-sector').value = 'ALL';
     document.getElementById('filter-detail').value = '';
     document.getElementById('filter-reported').value = '';
+    // 섹터를 설정 기본값으로 복원
+    loadSectors();
     loadReports();
     loadStats();
     loadCallsignStats();
@@ -425,6 +476,27 @@ function getRecommendation(similarity, scorePeak) {
     return '';
 }
 
+// 검출 목록 섹터 필터 (테이블만 필터링, API 재호출 없음)
+function filterTableBySector() {
+    const selected = getSelectedSectors();
+    const tbody = document.getElementById('reports-tbody');
+    const rows = tbody.querySelectorAll('tr[data-index]');
+    let visibleCount = 0;
+
+    rows.forEach(tr => {
+        const idx = parseInt(tr.dataset.index);
+        const r = FILTERED_REPORTS[idx];
+        if (!r) return;
+        if (selected.length === 0 || selected.includes(r.CCP)) {
+            tr.style.display = '';
+            visibleCount++;
+        } else {
+            tr.style.display = 'none';
+        }
+    });
+    document.getElementById('report-count').textContent = visibleCount;
+}
+
 // 등급 기준표 토글
 function toggleExcelGradeInfo() {
     const el = document.getElementById('excel-grade-info');
@@ -490,15 +562,13 @@ async function downloadExcel() {
         return;
     }
 
-    // 현재 필터 조건으로 전체 데이터 조회
-    const from = document.getElementById('date-from')?.value || '';
-    const to = document.getElementById('date-to')?.value || '';
-    const sector = document.getElementById('filter-sector')?.value || '';
+    // 현재 필터 조건으로 전체 데이터 조회 (섹터는 클라이언트에서 필터링)
+    const from = document.getElementById('filter-from')?.value || '';
+    const to = document.getElementById('filter-to')?.value || '';
 
     let url = '/api/admin/export-data?';
     if (from) url += `from=${encodeURIComponent(from)}&`;
-    if (to) url += `to=${encodeURIComponent(to)}&`;
-    if (sector) url += `sector=${encodeURIComponent(sector)}`;
+    if (to) url += `to=${encodeURIComponent(to)}`;
 
     try {
         const resp = await fetch(url);
@@ -509,10 +579,16 @@ async function downloadExcel() {
         }
 
         // 유사도 등급 필터 적용
-        const rows = filterReportsBySimilarity(result.data);
+        let rows = filterReportsBySimilarity(result.data);
+
+        // 섹터 체크박스 필터 적용
+        const selectedSectors = getSelectedSectors();
+        if (selectedSectors.length > 0) {
+            rows = rows.filter(r => selectedSectors.includes(r.CCP));
+        }
 
         if (rows.length === 0) {
-            alert('선택된 유사도 등급에 해당하는 데이터가 없습니다.');
+            alert('선택된 조건에 해당하는 데이터가 없습니다.');
             return;
         }
 
@@ -603,6 +679,9 @@ async function loadErrorDetailTypes() {
 
         // 유사도 등급 필터 적용
         DISPLAY_SIMILARITY = result.data?.displaySimilarity || [];
+
+        // 표시 섹터 설정 (섹터 체크박스 기본값)
+        DISPLAY_SECTORS = result.data?.displaySectors || [];
 
         // Excel 반출 등급 기준 적용
         if (result.data?.excelGrades) {

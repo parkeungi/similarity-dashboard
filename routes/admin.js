@@ -2,31 +2,37 @@ const express = require('express');
 const router = express.Router();
 const oracledb = require('oracledb');
 const db = require('../config/database');
-const fs = require('fs');
-const path = require('path');
 const { kstToUtc, convertRowsToKst } = require('../config/timeUtil');
 
-// settings.json에서 유사도 필터 설정 조회
-function getDisplaySimilarityFilter() {
-    try {
-        const data = fs.readFileSync(path.join(__dirname, '..', 'config', 'settings.json'), 'utf8');
-        const settings = JSON.parse(data);
-        const displaySimilarity = settings.displaySimilarity || [];
-        const thresholds = settings.thresholds || {};
-        const sim = thresholds.similarity || { critical: 2, caution: 1 };
+const { getCachedSettings, normalizeThresholds } = require('../config/settingsCache');
 
-        if (!displaySimilarity.length) return ''; // 빈 배열 = 전체
+// 유사도 필터 SQL 조건 생성 (바인드 변수 사용)
+function buildSimilarityFilter(binds = {}) {
+    try {
+        const settings = getCachedSettings();
+        if (!settings) return '';
+        const displaySimilarity = settings.displaySimilarity || [];
+        if (!displaySimilarity.length) return '';
+
+        const sim = normalizeThresholds(settings.thresholds).similarity;
+        let needCritical = false, needCaution = false;
 
         const conditions = [];
         if (displaySimilarity.includes('critical')) {
-            conditions.push(`c.SIMILARITY > ${Number(sim.critical) || 2}`);
+            conditions.push('c.SIMILARITY > :simCritical');
+            needCritical = true;
         }
         if (displaySimilarity.includes('caution')) {
-            conditions.push(`(c.SIMILARITY > ${Number(sim.caution) || 1} AND c.SIMILARITY <= ${Number(sim.critical) || 2})`);
+            conditions.push('(c.SIMILARITY > :simCaution AND c.SIMILARITY <= :simCritical)');
+            needCritical = true;
+            needCaution = true;
         }
         if (displaySimilarity.includes('monitor')) {
-            conditions.push(`c.SIMILARITY <= ${Number(sim.caution) || 1}`);
+            conditions.push('c.SIMILARITY <= :simCaution');
+            needCaution = true;
         }
+        if (needCritical) binds.simCritical = sim.critical;
+        if (needCaution) binds.simCaution = sim.caution;
         return conditions.length ? ' AND (' + conditions.join(' OR ') + ')' : '';
     } catch (e) {
         return '';
@@ -44,7 +50,7 @@ router.get('/reports', async (req, res) => {
     let conn;
     try {
         conn = await db.getConnection();
-        const { from, to, sector, type, typeDetail, reported } = req.query;
+        const { from, to, sector, sectors, type, typeDetail, reported } = req.query;
 
         let sql = `
             SELECT c.IDX, c.DETECTED, c.CLEARED, c.CCP,
@@ -57,20 +63,28 @@ router.get('/reports', async (req, res) => {
             WHERE c.CLEARED <> '9999-12-31 23:59:59'
         `;
 
-        // 설정된 유사도 등급 필터 적용
-        sql += getDisplaySimilarityFilter();
-
+        // 설정된 유사도 등급 필터 적용 (바인드 변수)
         const binds = {};
+        sql += buildSimilarityFilter(binds);
 
         if (from) {
             sql += ' AND c.DETECTED >= :startDt';
-            binds.startDt = from;
+            binds.startDt = kstToUtc(from);
         }
         if (to) {
             sql += ' AND c.DETECTED <= :endDt';
-            binds.endDt = to.length === 10 ? to + ' 23:59:59' : to;
+            const toFull = to.length === 10 ? to + ' 23:59:59' : to;
+            binds.endDt = kstToUtc(toFull);
         }
-        if (sector && sector !== 'ALL') {
+        // 다중 섹터 지원 (쉼표 구분)
+        if (sectors) {
+            const sectorList = sectors.split(',').filter(s => /^\d+$/.test(s.trim()));
+            if (sectorList.length > 0) {
+                const placeholders = sectorList.map((s, i) => `:sec${i}`);
+                sql += ` AND c.CCP IN (${placeholders.join(',')})`;
+                sectorList.forEach((s, i) => { binds[`sec${i}`] = s.trim(); });
+            }
+        } else if (sector && sector !== 'ALL') {
             sql += ' AND c.CCP = :sector';
             binds.sector = sector;
         }
@@ -91,7 +105,10 @@ router.get('/reports', async (req, res) => {
 
         sql += ' ORDER BY c.DETECTED DESC';
 
-        const result = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        const result = await conn.execute(sql, binds, {
+            outFormat: oracledb.OUT_FORMAT_OBJECT,
+            maxRows: 10000
+        });
 
         res.json({ success: true, data: convertRowsToKst(result.rows) });
     } catch (err) {
@@ -271,7 +288,7 @@ router.get('/export-data', async (req, res) => {
     let conn;
     try {
         conn = await db.getConnection();
-        const { from, to, sector } = req.query;
+        const { from, to, sector, sectors } = req.query;
 
         let sql = `
             SELECT c.IDX, c.DETECTED, c.CLEARED, c.CCP,
@@ -293,20 +310,32 @@ router.get('/export-data', async (req, res) => {
 
         if (from) {
             sql += ' AND c.DETECTED >= :startDt';
-            binds.startDt = from;
+            binds.startDt = kstToUtc(from);
         }
         if (to) {
             sql += ' AND c.DETECTED <= :endDt';
-            binds.endDt = to.length === 10 ? to + ' 23:59:59' : to;
+            const toFull = to.length === 10 ? to + ' 23:59:59' : to;
+            binds.endDt = kstToUtc(toFull);
         }
-        if (sector && sector !== 'ALL') {
+        // 다중 섹터 지원
+        if (sectors) {
+            const sectorList = sectors.split(',').filter(s => /^\d+$/.test(s.trim()));
+            if (sectorList.length > 0) {
+                const placeholders = sectorList.map((s, i) => `:sec${i}`);
+                sql += ` AND c.CCP IN (${placeholders.join(',')})`;
+                sectorList.forEach((s, i) => { binds[`sec${i}`] = s.trim(); });
+            }
+        } else if (sector && sector !== 'ALL') {
             sql += ' AND c.CCP = :sector';
             binds.sector = sector;
         }
 
         sql += ' ORDER BY c.DETECTED DESC';
 
-        const result = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        const result = await conn.execute(sql, binds, {
+            outFormat: oracledb.OUT_FORMAT_OBJECT,
+            maxRows: 10000
+        });
 
         res.json({ success: true, data: convertRowsToKst(result.rows) });
     } catch (err) {

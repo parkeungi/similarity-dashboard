@@ -75,9 +75,69 @@ function convertRowsToKst(rows) {
     return rows;
 }
 
+/**
+ * 현재 KST 시각 Date 객체 반환 (UTC 메서드로 KST 값 접근 가능)
+ * @returns {Date}
+ */
+function getKstNow() {
+    return new Date(Date.now() + KST_OFFSET_MS);
+}
+
+/**
+ * 동계/하계 시즌 기반 조회 대상 월 계산
+ * 하계: 3~10월, 동계: 11~2월
+ * 시즌 경계에서는 축소된 범위 적용 (최대 3개월)
+ *
+ * @param {number} kstMonth - 현재 KST 월 (1~12)
+ * @param {number} kstYear - 현재 KST 년도
+ * @returns {Array<{year: number, month: number}>} 조회 대상 (year, month) 배열
+ */
+function getSeasonalLookback(kstMonth, kstYear) {
+    const results = [];
+
+    if (kstMonth === 11) {
+        // 동계 시작 → 하계 마지막 달(10월)만
+        results.push({ year: kstYear, month: 10 });
+    } else if (kstMonth === 12) {
+        // 동계 → 11월만
+        results.push({ year: kstYear, month: 11 });
+    } else if (kstMonth === 1) {
+        // 동계 → 11, 12월 (전년)
+        results.push({ year: kstYear - 1, month: 11 });
+        results.push({ year: kstYear - 1, month: 12 });
+    } else if (kstMonth === 2) {
+        // 동계 → 11, 12, 1월 (3개월)
+        results.push({ year: kstYear - 1, month: 11 });
+        results.push({ year: kstYear - 1, month: 12 });
+        results.push({ year: kstYear, month: 1 });
+    } else if (kstMonth === 3) {
+        // 하계 시작 → 전년 하계 마지막 달(10월)만
+        results.push({ year: kstYear - 1, month: 10 });
+    } else if (kstMonth === 4) {
+        // 하계 → 3월만
+        results.push({ year: kstYear, month: 3 });
+    } else if (kstMonth === 5) {
+        // 하계 → 3, 4월
+        results.push({ year: kstYear, month: 3 });
+        results.push({ year: kstYear, month: 4 });
+    } else {
+        // 하계 6~10월 → 최근 3개월
+        for (let i = 3; i >= 1; i--) {
+            let m = kstMonth - i;
+            let y = kstYear;
+            if (m <= 0) { m += 12; y--; }
+            results.push({ year: y, month: m });
+        }
+    }
+
+    return results;
+}
+
 module.exports = {
     kstToUtc,
     utcToKst,
     getKstToday,
+    getKstNow,
+    getSeasonalLookback,
     convertRowsToKst
 };

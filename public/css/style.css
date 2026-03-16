@@ -187,7 +187,7 @@ body {
 
 /* Container */
 .container {
-    padding: 30px 40px;
+    padding: 12px 40px 30px;
     max-width: 1550px;
     margin: 0 auto;
 }
@@ -398,9 +398,9 @@ table {
 
 th {
     background: rgba(30, 41, 59, 0.8);
-    padding: 18px 20px;
+    padding: 12px 16px;
     text-align: left;
-    font-size: 22px;
+    font-size: 18px;
     color: #cbd5e1;
     font-weight: 700;
     letter-spacing: 0.5px;
@@ -408,9 +408,9 @@ th {
 }
 
 td {
-    padding: 18px 20px;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--glass-border);
-    font-size: 26px;
+    font-size: 21px;
 }
 
 #reports-table th {
@@ -1118,4 +1118,40 @@ body.page-admin .btn-sm {
 
 body.page-admin .stat-value {
     font-size: 22px;
+}
+
+/* ==================== 예측 행 스타일 ==================== */
+
+tr.prediction-separator td {
+    text-align: center;
+    padding: 10px 16px;
+    font-size: 13px;
+    color: var(--accent-primary);
+    background: rgba(14, 165, 233, 0.08);
+    border-top: 1px dashed rgba(14, 165, 233, 0.4);
+    border-bottom: 1px dashed rgba(14, 165, 233, 0.4);
+    letter-spacing: 1px;
+    font-family: var(--font-ui);
+    cursor: default;
+}
+
+tr.prediction-row {
+    opacity: 0.55;
+    border-left: 3px solid var(--accent-primary) !important;
+    background: rgba(14, 165, 233, 0.03);
+}
+
+tr.prediction-row:hover {
+    opacity: 0.8;
+    cursor: default;
+}
+
+.prediction-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    background: rgba(14, 165, 233, 0.2);
+    color: #7dd3fc;
+    white-space: nowrap;
 }

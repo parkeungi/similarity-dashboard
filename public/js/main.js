@@ -6,6 +6,11 @@ let currentSector = localStorage.getItem('selectedSector') || 'ALL';
 let refreshInterval = null;
 let currentRefreshRate = 10000; // 현재 적용된 갱신 주기 (interval 재생성 판단용)
 let editingReport = null; // 수정 모드 시 기존 보고서 정보 { idx, originalReported }
+let PREDICTION_DATA = []; // 예측 데이터
+let PREDICTION_META = null; // 예측 메타 정보 (시간대, 요일 등)
+let predictionIntervalMinute = null;  // 1분 주기 (시간 변경 감지)
+let predictionIntervalFull = null;    // 5분 주기 (전체 갱신)
+let lastPredictionHour = -1; // 시간 변경 감지용
 
 // 서버 설정 (관리자가 설정, 모든 브라우저에 동시 적용)
 let SERVER_CONFIG = {
@@ -348,6 +353,58 @@ async function loadData() {
 }
 
 /**
+ * 예측 데이터 로드
+ * @description 과거 동일요일 + 다음시간대 이력 기반 예측 콜사인 쌍 조회
+ */
+async function loadPredictions() {
+    try {
+        const activeSectors = SERVER_CONFIG.displaySectors.length > 0
+            ? SERVER_CONFIG.displaySectors
+            : FIXED_SECTORS;
+        const url = `/api/callsigns/predictions?sectors=${activeSectors.join(',')}`;
+        const response = await fetch(url);
+        if (!response.ok) return;
+        const result = await response.json();
+        if (result.success) {
+            PREDICTION_DATA = result.data || [];
+            PREDICTION_META = result.meta || null;
+            // 현재 섹터 필터 적용
+            if (currentSector !== 'ALL') {
+                PREDICTION_DATA = PREDICTION_DATA.filter(d => String(d.CCP) === currentSector);
+            }
+            renderTable(); // 독립 호출 시에만 렌더링 (filterBySector에서는 loadData가 렌더링)
+        }
+    } catch (err) {
+        console.error('예측 데이터 로드 실패:', err);
+    }
+}
+
+/**
+ * 예측 폴링 시작 (5분 주기, 시간 변경 시 즉시 갱신)
+ */
+function startPredictionPolling() {
+    // 기존 interval 정리
+    if (predictionIntervalMinute) clearInterval(predictionIntervalMinute);
+    if (predictionIntervalFull) clearInterval(predictionIntervalFull);
+
+    loadPredictions();
+
+    // 1분마다 시간 변경 체크 → 정시 넘으면 즉시 갱신
+    predictionIntervalMinute = setInterval(() => {
+        const currentHour = new Date().getHours();
+        if (currentHour !== lastPredictionHour) {
+            lastPredictionHour = currentHour;
+            loadPredictions();
+        }
+    }, 60000);
+
+    // 5분마다 전체 갱신
+    predictionIntervalFull = setInterval(() => {
+        loadPredictions();
+    }, 300000);
+}
+
+/**
  * 섹터 목록 로드
  * @description 모든 섹터의 유사호출부호 건수 조회 및 사이드바 렌더링
  * @returns {Promise<void>}
@@ -458,12 +515,12 @@ function renderSectors() {
 function renderTable() {
     const tbody = document.getElementById('callsign-tbody');
 
-    if (GLOBAL_DATA.length === 0) {
+    if (GLOBAL_DATA.length === 0 && PREDICTION_DATA.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="empty-state">데이터 없음</td></tr>';
         return;
     }
 
-    const html = GLOBAL_DATA.slice(0, SERVER_CONFIG.maxRows).map(d => {
+    let html = GLOBAL_DATA.slice(0, SERVER_CONFIG.maxRows).map(d => {
         // 위험도 종합 평가 (공통 함수 사용)
         const assessment = calculateRiskAssessment(d);
 
@@ -493,6 +550,43 @@ function renderTable() {
         `;
     }).join('');
 
+    // 예측 데이터 렌더링
+    if (PREDICTION_DATA.length > 0 && PREDICTION_META) {
+        const nh = String(PREDICTION_META.nextHour).padStart(2, '0');
+        const eh = String(PREDICTION_META.endHour).padStart(2, '0');
+        const dayName = PREDICTION_META.dayName || '';
+
+        html += `
+            <tr class="prediction-separator">
+                <td colspan="7">다음 시간대 예측 (${nh}:00~${eh}:00 / ${dayName}요일 이력 기반) ${PREDICTION_DATA.length}건</td>
+            </tr>
+        `;
+
+        html += PREDICTION_DATA.map(d => {
+            const assessment = calculateRiskAssessment(d);
+            const fp1 = escapeHtml(d.FP1_CALLSIGN);
+            const fp2 = escapeHtml(d.FP2_CALLSIGN);
+
+            return `
+                <tr class="prediction-row ${assessment.riskClass}">
+                    <td>
+                        <div class="callsign-box">
+                            <span class="callsign-main">${fp1 || '-'}</span>
+                            <span class="vs">|</span>
+                            <span class="callsign-main">${fp2 || '-'}</span>
+                        </div>
+                    </td>
+                    <td>${escapeHtml(assessment.airlineText)}</td>
+                    <td><span style="color: var(--accent-primary)">${escapeHtml(getSectorName(d.CCP))}</span></td>
+                    <td><span class="tag ${assessment.similarity.tag}">${assessment.similarity.text}</span></td>
+                    <td><span class="tag ${assessment.risk.tag}">${assessment.risk.text}</span></td>
+                    <td><span class="tag ${assessment.action.tag}">${assessment.action.text}</span></td>
+                    <td><span class="prediction-badge">(예측) ${d.HIST_COUNT}회</span></td>
+                </tr>
+            `;
+        }).join('');
+    }
+
     tbody.innerHTML = html;
 }
 
@@ -501,6 +595,7 @@ function filterBySector(sector) {
     currentSector = sector;
     localStorage.setItem('selectedSector', sector);
     loadData();
+    loadPredictions();
     renderSectors(); // 건수는 이미 ALL_SECTOR_COUNTS에 있으므로 렌더만
 }
 
@@ -867,6 +962,9 @@ async function init() {
 
         // 자동 갱신 시작 (서버 설정의 refreshRate 적용)
         startAutoRefresh();
+
+        // 예측 데이터 폴링 시작
+        startPredictionPolling();
     } catch (err) {
         console.error('초기화 실패:', err);
         document.getElementById('loader').innerHTML = `

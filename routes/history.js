@@ -15,10 +15,9 @@
 const express = require('express');
 const router = express.Router();
 const oracledb = require('oracledb');
-const fs = require('fs');
-const path = require('path');
 const db = require('../config/database');
 const { kstToUtc, convertRowsToKst } = require('../config/timeUtil');
+const { getCachedSettings, normalizeThresholds } = require('../config/settingsCache');
 
 // =====================================================================
 // 상수 정의
@@ -37,13 +36,13 @@ const PAGE_SIZE_DEFAULT = 50;
 const DEFAULT_SECTORS = ['3', '2', '10', '9', '11', '13', '12'];
 
 /**
- * 표시 대상 섹터 목록을 settings.json에서 동적으로 읽음
+ * 표시 대상 섹터 목록을 settings.json에서 동적으로 읽음 (캐싱)
  * @returns {string[]} fixedSectors 배열
  */
 function getAllowedSectors() {
     try {
-        const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
-        return (settings.fixedSectors && settings.fixedSectors.length > 0)
+        const settings = getCachedSettings();
+        return (settings?.fixedSectors && settings.fixedSectors.length > 0)
             ? settings.fixedSectors
             : DEFAULT_SECTORS;
     } catch (e) {
@@ -51,46 +50,10 @@ function getAllowedSectors() {
     }
 }
 
-/** 설정 파일 경로 */
-const SETTINGS_PATH = path.join(__dirname, '..', 'config', 'settings.json');
-
-/** 기본 위험도 기준값 */
-const DEFAULT_THRESHOLDS = {
-    similarity: { critical: 2, caution: 1 },
-    scorePeak: { critical: 40, caution: 20 }
-};
-
-function normalizeThresholds(thresholds) {
-    const simCriticalRaw = Number(thresholds?.similarity?.critical);
-    const simCautionRaw = Number(thresholds?.similarity?.caution);
-    const scoreCriticalRaw = Number(thresholds?.scorePeak?.critical);
-    const scoreCautionRaw = Number(thresholds?.scorePeak?.caution);
-
-    const normalized = {
-        similarity: {
-            critical: Number.isFinite(simCriticalRaw) ? simCriticalRaw : DEFAULT_THRESHOLDS.similarity.critical,
-            caution: Number.isFinite(simCautionRaw) ? simCautionRaw : DEFAULT_THRESHOLDS.similarity.caution
-        },
-        scorePeak: {
-            critical: Number.isFinite(scoreCriticalRaw) ? scoreCriticalRaw : DEFAULT_THRESHOLDS.scorePeak.critical,
-            caution: Number.isFinite(scoreCautionRaw) ? scoreCautionRaw : DEFAULT_THRESHOLDS.scorePeak.caution
-        }
-    };
-
-    if (!(normalized.similarity.critical > normalized.similarity.caution)) {
-        normalized.similarity = DEFAULT_THRESHOLDS.similarity;
-    }
-    if (!(normalized.scorePeak.critical > normalized.scorePeak.caution)) {
-        normalized.scorePeak = DEFAULT_THRESHOLDS.scorePeak;
-    }
-    return normalized;
-}
-
 function getThresholdsFromSettings() {
     try {
-        const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
-        const parsed = JSON.parse(raw);
-        return normalizeThresholds(parsed.thresholds);
+        const settings = getCachedSettings();
+        return normalizeThresholds(settings?.thresholds);
     } catch (err) {
         console.error('history 설정 파일 읽기 실패:', err);
         return normalizeThresholds();
