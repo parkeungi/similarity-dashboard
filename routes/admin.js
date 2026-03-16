@@ -2,7 +2,36 @@ const express = require('express');
 const router = express.Router();
 const oracledb = require('oracledb');
 const db = require('../config/database');
+const fs = require('fs');
+const path = require('path');
 const { kstToUtc, convertRowsToKst } = require('../config/timeUtil');
+
+// settings.json에서 유사도 필터 설정 조회
+function getDisplaySimilarityFilter() {
+    try {
+        const data = fs.readFileSync(path.join(__dirname, '..', 'config', 'settings.json'), 'utf8');
+        const settings = JSON.parse(data);
+        const displaySimilarity = settings.displaySimilarity || [];
+        const thresholds = settings.thresholds || {};
+        const sim = thresholds.similarity || { critical: 2, caution: 1 };
+
+        if (!displaySimilarity.length) return ''; // 빈 배열 = 전체
+
+        const conditions = [];
+        if (displaySimilarity.includes('critical')) {
+            conditions.push(`c.SIMILARITY > ${Number(sim.critical) || 2}`);
+        }
+        if (displaySimilarity.includes('caution')) {
+            conditions.push(`(c.SIMILARITY > ${Number(sim.caution) || 1} AND c.SIMILARITY <= ${Number(sim.critical) || 2})`);
+        }
+        if (displaySimilarity.includes('monitor')) {
+            conditions.push(`c.SIMILARITY <= ${Number(sim.caution) || 1}`);
+        }
+        return conditions.length ? ' AND (' + conditions.join(' OR ') + ')' : '';
+    } catch (e) {
+        return '';
+    }
+}
 
 // 에러 메시지 안전하게 처리 (내부 정보 노출 방지)
 function safeErrorMessage(err) {
@@ -10,32 +39,35 @@ function safeErrorMessage(err) {
     return '요청 처리 중 오류가 발생했습니다.';
 }
 
-// 보고서 전체 조회 (JOIN)
+// 전체 호출부호 데이터 조회 (LEFT JOIN 보고서, 종료 건만, 유사도 설정 적용)
 router.get('/reports', async (req, res) => {
     let conn;
     try {
         conn = await db.getConnection();
-        const { from, to, sector, type, typeDetail } = req.query;
+        const { from, to, sector, type, typeDetail, reported } = req.query;
 
         let sql = `
-            SELECT r.IDX, r.REPORTED, r.REPORTER, r.AO, r.TYPE, r.TYPE_DETAIL, r.REMARK,
-                   c.CCP, c.DETECTED, c.CLEARED,
+            SELECT c.IDX, c.DETECTED, c.CLEARED, c.CCP,
                    c.FP1_CALLSIGN, c.FP1_DEPT, c.FP1_DEST, c.FP1_EOBT, c.FP1_FID, c.FP1_ALT,
                    c.FP2_CALLSIGN, c.FP2_DEPT, c.FP2_DEST, c.FP2_EOBT, c.FP2_FID, c.FP2_ALT,
-                   c.SIMILARITY, c.SCORE_PEAK, c.CTRL_PEAK, c.COMP_RAT
-            FROM T_SIMILAR_CALLSIGN_PAIR_REPORT r
-            LEFT JOIN T_SIMILAR_CALLSIGN_PAIR c ON r.IDX = c.IDX
-            WHERE 1=1
+                   c.SIMILARITY, c.SCORE_PEAK, c.CTRL_PEAK, c.COMP_RAT,
+                   r.REPORTED, r.REPORTER, r.AO, r.TYPE, r.TYPE_DETAIL, r.REMARK
+            FROM T_SIMILAR_CALLSIGN_PAIR c
+            LEFT JOIN T_SIMILAR_CALLSIGN_PAIR_REPORT r ON r.IDX = c.IDX
+            WHERE c.CLEARED <> '9999-12-31 23:59:59'
         `;
+
+        // 설정된 유사도 등급 필터 적용
+        sql += getDisplaySimilarityFilter();
 
         const binds = {};
 
         if (from) {
-            sql += ' AND r.REPORTED >= :startDt';
+            sql += ' AND c.DETECTED >= :startDt';
             binds.startDt = from;
         }
         if (to) {
-            sql += ' AND r.REPORTED <= :endDt';
+            sql += ' AND c.DETECTED <= :endDt';
             binds.endDt = to.length === 10 ? to + ' 23:59:59' : to;
         }
         if (sector && sector !== 'ALL') {
@@ -50,14 +82,20 @@ router.get('/reports', async (req, res) => {
             sql += ' AND r.TYPE_DETAIL = :typeDetail';
             binds.typeDetail = parseInt(typeDetail);
         }
+        // 보고여부 필터
+        if (reported === 'Y') {
+            sql += ' AND r.REPORTED IS NOT NULL';
+        } else if (reported === 'N') {
+            sql += ' AND r.REPORTED IS NULL';
+        }
 
-        sql += ' ORDER BY r.REPORTED DESC';
+        sql += ' ORDER BY c.DETECTED DESC';
 
         const result = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
 
         res.json({ success: true, data: convertRowsToKst(result.rows) });
     } catch (err) {
-        console.error('보고서 조회 오류:', err);
+        console.error('데이터 조회 오류:', err);
         res.status(500).json({ success: false, error: safeErrorMessage(err) });
     } finally {
         if (conn) await conn.close();

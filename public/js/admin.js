@@ -91,6 +91,7 @@ async function loadReports() {
     const type = document.getElementById('filter-type').value;
     const sector = document.getElementById('filter-sector').value;
     const detail = document.getElementById('filter-detail').value;
+    const reported = document.getElementById('filter-reported').value;
 
     let url = '/api/admin/reports?';
     const params = [];
@@ -100,6 +101,7 @@ async function loadReports() {
     if (type) params.push(`type=${encodeURIComponent(type)}`);
     if (sector && sector !== 'ALL') params.push(`sector=${encodeURIComponent(sector)}`);
     if (detail) params.push(`typeDetail=${encodeURIComponent(detail)}`);
+    if (reported) params.push(`reported=${encodeURIComponent(reported)}`);
 
     url += params.join('&');
 
@@ -207,18 +209,28 @@ function renderReports() {
     document.getElementById('report-count').textContent = REPORTS_DATA.length;
 
     if (REPORTS_DATA.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">보고된 항목이 없습니다</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">조회된 항목이 없습니다</td></tr>';
         return;
     }
 
     const html = REPORTS_DATA.map((r, index) => {
+        const hasReport = r.REPORTED ? true : false;
+        const simBand = getSimilarityBand(r.SIMILARITY);
+        const simTag = simBand === 'critical' ? 'tag-danger' : simBand === 'caution' ? 'tag-warning' : 'tag-info';
+        const simText = simBand === 'critical' ? '매우높음' : simBand === 'caution' ? '높음' : '보통';
+        const recBand = getRecommendationBand(r.SIMILARITY, r.SCORE_PEAK);
+        const recTag = recBand === 'critical' ? 'tag-danger' : recBand === 'caution' ? 'tag-warning' : 'tag-info';
+        const recText = recBand === 'critical' ? '즉시조치' : recBand === 'caution' ? '주의관찰' : '정상감시';
+        const reportTag = hasReport ? '<span class="tag tag-danger" style="font-size:11px;">보고완료</span>' : '<span style="color:var(--text-muted);font-size:11px;">-</span>';
         const typeClass = r.TYPE === 1 ? 'tag-danger' : r.TYPE === 2 ? 'tag-warning' : 'tag-info';
-        const impactClass = 'tag-info';
+
+        // 검출시각: MM-DD HH:MM 형태로 축약 표시
+        const detected = r.DETECTED ? r.DETECTED.substring(5, 16) : '-';
 
         return `
             <tr data-index="${index}" style="cursor: pointer;">
-                <td><input type="checkbox" class="report-check" data-idx="${escapeHtml(r.IDX)}" data-reported="${escapeHtml(r.REPORTED)}"></td>
-                <td style="font-size: 12px;">${escapeHtml(r.REPORTED) || '-'}</td>
+                <td><input type="checkbox" class="report-check" data-idx="${escapeHtml(r.IDX)}" data-reported="${escapeHtml(r.REPORTED || '')}"></td>
+                <td style="font-size: 12px;">${escapeHtml(detected)}</td>
                 <td>${escapeHtml(getSectorName(r.CCP))}</td>
                 <td>
                     <div class="callsign-box">
@@ -227,9 +239,11 @@ function renderReports() {
                         <span class="callsign-main">${escapeHtml(r.FP2_CALLSIGN) || '-'}</span>
                     </div>
                 </td>
-                <td>${escapeHtml(r.REPORTER) || '-'}</td>
-                <td><span class="tag ${typeClass}">${TYPE_MAP[r.TYPE] || '-'}</span></td>
-                <td><span class="tag ${impactClass}">${IMPACT_MAP[r.TYPE_DETAIL] || '-'}</span></td>
+                <td><span class="tag ${simTag}">${simText}</span></td>
+                <td><span class="tag ${recTag}">${recText}</span></td>
+                <td>${reportTag}</td>
+                <td>${hasReport ? '<span class="tag ' + typeClass + '">' + (TYPE_MAP[r.TYPE] || '-') + '</span>' : '<span style="color:var(--text-muted);">-</span>'}</td>
+                <td>${hasReport ? '<span class="tag tag-info">' + (IMPACT_MAP[r.TYPE_DETAIL] || '-') + '</span>' : '<span style="color:var(--text-muted);">-</span>'}</td>
             </tr>
         `;
     }).join('');
@@ -256,6 +270,7 @@ function resetFilter() {
     document.getElementById('filter-type').value = '';
     document.getElementById('filter-sector').value = 'ALL';
     document.getElementById('filter-detail').value = '';
+    document.getElementById('filter-reported').value = '';
     loadReports();
     loadStats();
     loadCallsignStats();

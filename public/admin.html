@@ -18,6 +18,7 @@
         </a>
         <div class="header-right">
             <div class="system-status">
+                <div class="status-item" style="font-size: 11px; opacity: 0.7;">시스템정보부 ☎ 555</div>
                 <div class="status-item">
                     <div id="network-dot" class="blink-dot"></div>
                     <span id="network-status">연결중...</span>
@@ -254,6 +255,14 @@
                             <option value="">전체</option>
                         </select>
                     </div>
+                    <div class="filter-group">
+                        <label>보고:</label>
+                        <select id="filter-reported">
+                            <option value="">전체</option>
+                            <option value="Y">보고완료</option>
+                            <option value="N">미보고</option>
+                        </select>
+                    </div>
                     <button class="btn btn-primary btn-sm" onclick="applyFilter()">검색</button>
                     <button class="btn btn-ghost btn-sm" onclick="resetFilter()">초기화</button>
                     <button class="btn btn-ghost btn-sm" onclick="toggleCharts()" style="margin-left: auto;">통계 차트</button>
@@ -313,7 +322,7 @@
             <!-- 보고서 테이블 -->
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title">보고서 목록 (<span id="report-count">0</span>건)</div>
+                    <div class="card-title">검출 목록 (<span id="report-count">0</span>건)</div>
                     <div style="display: flex; gap: 10px;">
                         <button class="btn btn-ghost btn-sm" onclick="downloadExcel()">Excel 저장</button>
                         <button class="btn btn-danger btn-sm" onclick="deleteSelected()">선택 삭제</button>
@@ -324,10 +333,12 @@
                         <thead>
                             <tr>
                                 <th style="width: 40px;"><input type="checkbox" onclick="toggleAll(this)"></th>
-                                <th>보고일시</th>
+                                <th>검출시각</th>
                                 <th>섹터</th>
                                 <th>유사호출부호</th>
-                                <th>보고자</th>
+                                <th>유사도</th>
+                                <th>권고사항</th>
+                                <th>보고</th>
                                 <th>오류유형</th>
                                 <th>세부오류유형</th>
                             </tr>
