@@ -82,6 +82,18 @@ body {
     display: block;
 }
 
+.header-center {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 17px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.55);
+    letter-spacing: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
 .header-right {
     display: flex;
     flex-direction: column;
@@ -132,6 +144,22 @@ body {
     background: var(--accent-primary);
     color: #fff;
     border-color: var(--accent-primary);
+}
+
+.header-login-btn {
+    background: none;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 4px 8px;
+    line-height: 1;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+.header-login-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.08);
 }
 
 .header-nav {
@@ -248,13 +276,13 @@ body {
 
 .sector-card {
     flex: 1 1 0;
-    min-width: 160px;
+    min-width: 120px;
     background: rgba(15, 23, 42, 0.6);
     border: 1px solid var(--glass-border);
     border-radius: 12px;
     padding: 16px 20px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.35s ease;
     text-align: center;
 }
 
@@ -265,33 +293,31 @@ body {
 }
 
 .sector-card.active {
-    background: rgba(245, 158, 11, 0.12);
-    border-color: var(--accent-warning);
-    box-shadow: 0 0 16px rgba(245, 158, 11, 0.15);
+    flex: 1.8 1 0;
+    background: rgba(14, 165, 233, 0.1);
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 20px rgba(14, 165, 233, 0.2), inset 0 0 30px rgba(14, 165, 233, 0.05);
 }
 
 .sector-card.dimmed {
-    opacity: 0.22;
+    flex: 0.7 1 0;
+    min-width: 100px;
+    opacity: 0.35;
     background: rgba(15, 23, 42, 0.35);
     border-color: rgba(148, 163, 184, 0.15);
+    padding: 12px 10px;
 }
 
 .sector-card.dimmed:hover {
-    opacity: 0.35;
+    opacity: 0.55;
 }
 
-.sector-card.dimmed .sector-card-name,
-.sector-card.dimmed .sector-card-stat-value {
+.sector-card.dimmed .sector-card-name {
     color: rgba(148, 163, 184, 0.55);
 }
 
 .sector-card.dimmed .sector-card-stat-label {
     color: rgba(148, 163, 184, 0.35);
-}
-
-.sector-card.dimmed .sector-card-action {
-    background: rgba(15, 23, 42, 0.35);
-    color: rgba(148, 163, 184, 0.55);
 }
 
 .sector-card-name {
@@ -303,7 +329,20 @@ body {
 }
 
 .sector-card.active .sector-card-name {
-    color: var(--accent-warning);
+    color: var(--accent-primary);
+}
+
+.sector-card.dimmed .sector-card-name {
+    font-size: 18px;
+}
+
+.sector-card.dimmed .sector-card-stat-value {
+    font-size: 20px;
+}
+
+.sector-card.dimmed .sector-card-action {
+    font-size: 12px;
+    padding: 3px 8px;
 }
 
 .sector-card-counts {

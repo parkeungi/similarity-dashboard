@@ -285,6 +285,49 @@ function updateNetworkStatus(isConnected) {
     }
 }
 
+// ==================== 관리자 인증 ====================
+
+const AUTH_KEY = 'katc_auth';
+const AUTH_PASSWORD = 'katcadmin';
+
+function isAuthenticated() {
+    return sessionStorage.getItem(AUTH_KEY) === 'true';
+}
+
+function applyAuthState() {
+    const authenticated = isAuthenticated();
+    document.querySelectorAll('.auth-link').forEach(el => {
+        el.style.display = authenticated ? '' : 'none';
+    });
+    const btn = document.querySelector('.header-login-btn');
+    if (btn) btn.textContent = authenticated ? '🔓' : '🔒';
+}
+
+function handleAuthToggle() {
+    if (isAuthenticated()) {
+        sessionStorage.removeItem(AUTH_KEY);
+        applyAuthState();
+        // 관리자 페이지에 있으면 메인으로 이동
+        if (location.pathname !== '/') location.href = '/';
+    } else {
+        const input = prompt('관리자 비밀번호를 입력하세요:');
+        if (input === AUTH_PASSWORD) {
+            sessionStorage.setItem(AUTH_KEY, 'true');
+            applyAuthState();
+        } else if (input !== null) {
+            alert('비밀번호가 일치하지 않습니다.');
+        }
+    }
+}
+
+// 관리자 페이지 접근 보호 (인증 없이 URL 직접 접근 시 리다이렉트)
+function checkAuthRequired() {
+    const path = location.pathname;
+    if ((path === '/admin' || path === '/history') && !isAuthenticated()) {
+        location.href = '/';
+    }
+}
+
 // ==================== 초기화 실행 ====================
 
 /**
@@ -295,4 +338,8 @@ if (document.getElementById('realtime-clock')) {
     updateClock(); // 즉시 1회 실행
     setInterval(updateClock, 1000); // 1초마다 갱신
 }
+
+// 인증 상태 적용 및 페이지 보호
+applyAuthState();
+checkAuthRequired();
 

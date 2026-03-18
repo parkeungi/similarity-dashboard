@@ -16,19 +16,13 @@
         <a href="/" class="header-banner" target="_top">
             <img src="img/title_image.png" alt="유사호출부호 경고 시스템" class="header-banner-img">
         </a>
+        <div class="header-center">항공교통본부</div>
         <div class="header-right">
-            <div class="system-status">
-                <div class="status-item" style="font-size: 11px; opacity: 0.7;">시스템정보부 ☎ 555</div>
-                <div class="status-item">
-                    <div id="network-dot" class="blink-dot"></div>
-                    <span id="network-status">연결중...</span>
-                </div>
-                <div class="status-item">KST <span id="realtime-clock">00:00:00</span></div>
-            </div>
             <div class="header-shortcuts">
                 <a href="/" class="header-shortcut text-link" title="실시간 검출">실시간 검출</a>
-                <a href="/history" class="header-shortcut text-link active" title="검출 이력">검출 이력</a>
-                <a href="/admin" class="header-shortcut text-link" title="보고 이력">보고 이력</a>
+                <a href="/history" class="header-shortcut text-link active auth-link" title="검출 이력">검출 이력</a>
+                <a href="/admin" class="header-shortcut text-link auth-link" title="보고 이력">보고 이력</a>
+                <button class="header-login-btn" onclick="handleAuthToggle()" title="관리자 로그인">🔒</button>
             </div>
         </div>
     </div>
@@ -227,7 +221,7 @@
     </div>
 
     <footer class="footer">
-        <span>&copy; 2025 한국공항공사 시스템정보부 &middot; 유사호출부호 경고 시스템 v1.0</span>
+        <span>&copy; 2025 한국공항공사 시스템정보부 &middot; 유사호출부호 경고 시스템 v1.0 &middot; ☎ 555</span>
     </footer>
 
     <!-- 검출 상세 보기 모달 -->
