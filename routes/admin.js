@@ -411,6 +411,9 @@ router.get('/export-data', async (req, res) => {
             const toFull = to.length === 10 ? to + ' 23:59:59' : to;
             binds.endDt = kstToUtc(toFull);
         }
+        // displaySimilarity 설정 필터 적용
+        sql += buildSimilarityFilter(binds);
+
         // 다중 섹터 지원
         if (sectors) {
             const sectorList = sectors.split(',').filter(s => /^\d+$/.test(s.trim()));

@@ -158,7 +158,7 @@ function buildWhereClause({ from, to, sector, sectors, risk, status, thresholds,
         });
     }
 
-    // --- 위험도 필터 (SIMILARITY 기준, 추천 쿼리에서는 미사용) ---
+    // --- 위험도 필터 (SIMILARITY 기준) ---
     if (risk) {
         const simThresholds = normalizeThresholds(thresholds).similarity;
         if (risk === 'danger') {
@@ -171,6 +171,33 @@ function buildWhereClause({ from, to, sector, sectors, risk, status, thresholds,
         } else if (risk === 'info') {
             whereClause += ` AND ${p}SIMILARITY <= :simCaution`;
             binds.simCaution = simThresholds.caution;
+        }
+    } else {
+        // risk 미지정 시: displaySimilarity 설정 적용 (매우높음/높음만 선택 시 보통 제외)
+        const settings = getCachedSettings();
+        const displaySimilarity = settings?.displaySimilarity || [];
+        if (displaySimilarity.length > 0) {
+            const simThresholds = normalizeThresholds(thresholds).similarity;
+            const conditions = [];
+            let needCritical = false, needCaution = false;
+            if (displaySimilarity.includes('critical')) {
+                conditions.push(`${p}SIMILARITY > :dsCritical`);
+                needCritical = true;
+            }
+            if (displaySimilarity.includes('caution')) {
+                conditions.push(`(${p}SIMILARITY > :dsCaution AND ${p}SIMILARITY <= :dsCritical)`);
+                needCritical = true;
+                needCaution = true;
+            }
+            if (displaySimilarity.includes('monitor')) {
+                conditions.push(`${p}SIMILARITY <= :dsCaution`);
+                needCaution = true;
+            }
+            if (needCritical) binds.dsCritical = simThresholds.critical;
+            if (needCaution) binds.dsCaution = simThresholds.caution;
+            if (conditions.length) {
+                whereClause += ` AND (${conditions.join(' OR ')})`;
+            }
         }
     }
 

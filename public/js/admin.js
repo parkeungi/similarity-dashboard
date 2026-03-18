@@ -1606,5 +1606,325 @@ function renderTodaySectorList(bySector) {
     }).join('');
 }
 
+// ==================== 항공사 제출 뷰 ====================
+
+let AIRLINE_DATA = [];
+let AIRLINE_DATA_RAW = []; // 필터 전 원본
+let airlinePage = 1;
+let airlinePageSize = 100;
+let airlineSelectedSectors = [...INCHEON_SECTORS]; // 기본: 인천 섹터
+
+function switchView(view) {
+    const reportsView = document.getElementById('view-reports');
+    const airlineView = document.getElementById('view-airline');
+    const tabReports = document.getElementById('tab-reports');
+    const tabAirline = document.getElementById('tab-airline');
+
+    if (view === 'airline') {
+        reportsView.style.display = 'none';
+        airlineView.style.display = 'block';
+        tabReports.classList.remove('active');
+        tabAirline.classList.add('active');
+        if (!document.getElementById('airline-from').value) {
+            initAirlineSectorCheckboxes();
+            setAirlineDatePreset('month');
+            loadAirlineData();
+        }
+    } else {
+        reportsView.style.display = '';
+        airlineView.style.display = 'none';
+        tabReports.classList.add('active');
+        tabAirline.classList.remove('active');
+    }
+}
+
+function setAirlineDatePreset(period) {
+    const today = new Date();
+    const toStr = today.toISOString().slice(0, 10);
+    let fromStr = toStr;
+
+    if (period === 'today') {
+        fromStr = toStr;
+    } else if (period === 'week') {
+        const d = new Date(today);
+        d.setDate(d.getDate() - 7);
+        fromStr = d.toISOString().slice(0, 10);
+    } else if (period === 'month') {
+        fromStr = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+    } else if (period === '3month') {
+        const d = new Date(today);
+        d.setMonth(d.getMonth() - 3);
+        fromStr = d.toISOString().slice(0, 10);
+    }
+
+    document.getElementById('airline-from').value = fromStr;
+    document.getElementById('airline-to').value = toStr;
+
+    // 직접입력이면 날짜 입력 표시
+    const rangeGroup = document.getElementById('airline-date-range-group');
+    rangeGroup.style.display = period === 'custom' ? 'flex' : 'none';
+
+    // 버튼 active 상태
+    document.querySelectorAll('[data-airline-period]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.airlinePeriod === period);
+    });
+
+    if (period !== 'custom') loadAirlineData();
+}
+
+// 섹터 체크박스 초기화
+function initAirlineSectorCheckboxes() {
+    const container = document.getElementById('airline-sector-list');
+    if (!container) return;
+    const allCodes = Object.keys(SECTOR_MAP);
+    container.innerHTML = allCodes.map(code => {
+        const checked = airlineSelectedSectors.includes(code) ? 'checked' : '';
+        return `<label style="display:flex;align-items:center;gap:6px;padding:4px 8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" value="${code}" ${checked} onchange="onAirlineSectorChange()"> ${escapeHtml(SECTOR_MAP[code])}
+        </label>`;
+    }).join('');
+    updateAirlineSectorBtn();
+}
+
+function toggleAirlineSectorDropdown() {
+    const dd = document.getElementById('airline-sector-dropdown');
+    dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+
+// 드롭다운 외부 클릭 시 닫기
+document.addEventListener('click', (e) => {
+    const dd = document.getElementById('airline-sector-dropdown');
+    if (dd && dd.style.display === 'block' && !e.target.closest('#airline-sector-dropdown') && !e.target.closest('#airline-sector-btn')) {
+        dd.style.display = 'none';
+    }
+});
+
+function toggleAirlineAllSectors(el) {
+    const checks = document.querySelectorAll('#airline-sector-list input[type=checkbox]');
+    checks.forEach(c => { c.checked = el.checked; });
+    onAirlineSectorChange();
+}
+
+function onAirlineSectorChange() {
+    const checks = document.querySelectorAll('#airline-sector-list input[type=checkbox]:checked');
+    airlineSelectedSectors = Array.from(checks).map(c => c.value);
+    // 전체 체크박스 동기화
+    const allCheck = document.getElementById('airline-sector-all');
+    const total = document.querySelectorAll('#airline-sector-list input[type=checkbox]').length;
+    if (allCheck) allCheck.checked = airlineSelectedSectors.length === total;
+    updateAirlineSectorBtn();
+    applyAirlineSectorFilter();
+}
+
+function updateAirlineSectorBtn() {
+    const btn = document.getElementById('airline-sector-btn');
+    if (!btn) return;
+    const total = Object.keys(SECTOR_MAP).length;
+    if (airlineSelectedSectors.length === 0 || airlineSelectedSectors.length === total) {
+        btn.textContent = '전체 섹터';
+    } else if (airlineSelectedSectors.length <= 3) {
+        btn.textContent = airlineSelectedSectors.map(c => SECTOR_MAP[c] || c).join(', ');
+    } else {
+        btn.textContent = `${airlineSelectedSectors.length}개 섹터`;
+    }
+}
+
+function applyAirlineSectorFilter() {
+    if (airlineSelectedSectors.length === 0) {
+        AIRLINE_DATA = AIRLINE_DATA_RAW;
+    } else {
+        AIRLINE_DATA = AIRLINE_DATA_RAW.filter(r => airlineSelectedSectors.includes(String(r.CCP)));
+    }
+    airlinePage = 1;
+    renderAirlineTable();
+}
+
+async function loadAirlineData() {
+    const from = document.getElementById('airline-from').value;
+    const to = document.getElementById('airline-to').value;
+    if (!from || !to) { alert('기간을 설정해주세요.'); return; }
+
+    let url = `/api/admin/export-data?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    try {
+        const resp = await fetch(url);
+        const result = await resp.json();
+        if (!result.success) { alert('데이터 조회 실패'); return; }
+        AIRLINE_DATA_RAW = filterReportsBySimilarity(result.data || []);
+        applyAirlineSectorFilter();
+    } catch (err) {
+        console.error('항공사 데이터 조회 오류:', err);
+        alert('데이터 조회 중 오류가 발생했습니다.');
+    }
+}
+
+function renderAirlineTable() {
+    const tbody = document.getElementById('airline-tbody');
+    const totalCount = AIRLINE_DATA.length;
+    document.getElementById('airline-count').textContent = totalCount;
+
+    const totalPages = Math.max(1, Math.ceil(totalCount / airlinePageSize));
+    if (airlinePage > totalPages) airlinePage = totalPages;
+
+    const start = (airlinePage - 1) * airlinePageSize;
+    const pageData = AIRLINE_DATA.slice(start, start + airlinePageSize);
+
+    const COL_COUNT = 30;
+    tbody.innerHTML = pageData.length === 0
+        ? `<tr><td colspan="${COL_COUNT}" style="text-align:center;color:var(--text-muted);padding:40px;">조회된 항목이 없습니다</td></tr>`
+        : pageData.map(r => {
+            const fp1 = r.FP1_CALLSIGN || '';
+            const fp2 = r.FP2_CALLSIGN || '';
+            const prefix1 = extractAirlinePrefix(fp1);
+            const prefix2 = extractAirlinePrefix(fp2);
+            const hasReport = r.REPORTED ? true : false;
+            const reported = Number(r.MARK) === 1;
+
+            return `<tr>
+                <td>${escapeHtml(r.DETECTED || '')}</td>
+                <td>${escapeHtml(r.CLEARED || '')}</td>
+                <td>${escapeHtml(getSectorName(r.CCP))}</td>
+                <td><strong>${escapeHtml(fp1)}</strong></td>
+                <td>${escapeHtml(r.FP1_DEPT || '')}</td>
+                <td>${escapeHtml(r.FP1_DEST || '')}</td>
+                <td><strong>${escapeHtml(fp2)}</strong></td>
+                <td>${escapeHtml(r.FP2_DEPT || '')}</td>
+                <td>${escapeHtml(r.FP2_DEST || '')}</td>
+                <td>${escapeHtml(fp1 && fp2 ? fp1 + ' | ' + fp2 : '')}</td>
+                <td>${escapeHtml(prefix1 === prefix2 ? prefix1 : prefix1 + ' | ' + prefix2)}</td>
+                <td>${escapeHtml(buildAirlineKorean(r.FP1_AIRLINE, r.FP2_AIRLINE, prefix1, prefix2))}</td>
+                <td>${escapeHtml(matchToText(r.AOD_MATCH))}</td>
+                <td>${escapeHtml(matchToText(r.FID_LEN_MATCH))}</td>
+                <td>${escapeHtml(matchPosToText(r.MATCH_POS))}</td>
+                <td style="text-align:right;">${r.MATCH_LEN ?? ''}</td>
+                <td style="text-align:right;">${r.COMP_RAT ?? ''}</td>
+                <td>${escapeHtml(getSimilarityGrade(r.SIMILARITY))}</td>
+                <td style="text-align:right;">${r.CTRL_PEAK ?? ''}</td>
+                <td style="text-align:right;">${calcCoexistMinutes(r.DETECTED, r.CLEARED)}</td>
+                <td style="text-align:right;">${r.SCORE_PEAK ?? ''}</td>
+                <td>${escapeHtml(getScoreGrade(r.SCORE_PEAK))}</td>
+                <td>${escapeHtml(getRecommendation(r.SIMILARITY, r.SCORE_PEAK))}</td>
+                <td style="text-align:center;color:${reported ? 'var(--accent-secondary)' : 'var(--text-muted)'};">${reported ? 'O' : ''}</td>
+                <td>${escapeHtml(r.REPORTED || '')}</td>
+                <td>${escapeHtml(r.REPORTER || '')}</td>
+                <td>${hasReport ? escapeHtml(r.AO === 1 ? fp1 : r.AO === 2 ? fp2 : r.AO === 3 ? fp1 + ', ' + fp2 : '') : ''}</td>
+                <td>${hasReport ? escapeHtml(TYPE_MAP[r.TYPE] || '') : ''}</td>
+                <td>${hasReport ? escapeHtml(IMPACT_MAP[r.TYPE_DETAIL] || '') : ''}</td>
+                <td>${escapeHtml(r.REMARK || '')}</td>
+            </tr>`;
+        }).join('');
+
+    renderAirlinePagination(totalPages);
+}
+
+function renderAirlinePagination(totalPages) {
+    const container = document.getElementById('airline-pagination');
+    if (totalPages <= 1) { container.innerHTML = ''; return; }
+
+    let html = `<button class="pagination-btn" onclick="goAirlinePage(1)" ${airlinePage === 1 ? 'disabled' : ''}>&laquo;</button>`;
+    html += `<button class="pagination-btn" onclick="goAirlinePage(${airlinePage - 1})" ${airlinePage === 1 ? 'disabled' : ''}>&lsaquo;</button>`;
+
+    let startPage = Math.max(1, airlinePage - 2);
+    let endPage = Math.min(totalPages, startPage + 4);
+    if (endPage - startPage < 4) startPage = Math.max(1, endPage - 4);
+
+    for (let i = startPage; i <= endPage; i++) {
+        html += `<button class="pagination-btn ${i === airlinePage ? 'active' : ''}" onclick="goAirlinePage(${i})">${i}</button>`;
+    }
+
+    html += `<button class="pagination-btn" onclick="goAirlinePage(${airlinePage + 1})" ${airlinePage === totalPages ? 'disabled' : ''}>&rsaquo;</button>`;
+    html += `<button class="pagination-btn" onclick="goAirlinePage(${totalPages})" ${airlinePage === totalPages ? 'disabled' : ''}>&raquo;</button>`;
+    html += `<span style="font-size:12px;color:var(--text-muted);margin-left:8px;">${airlinePage} / ${totalPages}</span>`;
+
+    container.innerHTML = html;
+}
+
+function goAirlinePage(page) {
+    airlinePage = page;
+    renderAirlineTable();
+    document.getElementById('airline-table').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function changeAirlinePageSize() {
+    airlinePageSize = parseInt(document.getElementById('airline-page-size').value);
+    airlinePage = 1;
+    renderAirlineTable();
+}
+
+async function exportAirlineExcel() {
+    if (AIRLINE_DATA.length === 0) {
+        alert('먼저 검색을 실행해주세요.');
+        return;
+    }
+    // 기존 downloadExcel 로직 재사용 (AIRLINE_DATA 기반)
+    if (typeof XLSX === 'undefined') {
+        alert('Excel 내보내기 라이브러리를 불러올 수 없습니다.');
+        return;
+    }
+
+    const rows = AIRLINE_DATA;
+    const excelData = rows.map(r => {
+        const fp1 = r.FP1_CALLSIGN || '';
+        const fp2 = r.FP2_CALLSIGN || '';
+        const prefix1 = extractAirlinePrefix(fp1);
+        const prefix2 = extractAirlinePrefix(fp2);
+        const hasReport = r.REPORTED ? true : false;
+
+        return {
+            '시작일시(KST)': r.DETECTED || '',
+            '종료일시(KST)': r.CLEARED || '',
+            '관할섹터명': getSectorName(r.CCP),
+            '편명1': fp1,
+            '출발공항1': r.FP1_DEPT || '',
+            '도착공항1': r.FP1_DEST || '',
+            '편명2': fp2,
+            '출발공항2': r.FP2_DEPT || '',
+            '도착공항2': r.FP2_DEST || '',
+            '편명1 | 편명2': fp1 && fp2 ? fp1 + ' | ' + fp2 : '',
+            '항공사구분': prefix1 === prefix2 ? prefix1 : (prefix1 + ' | ' + prefix2),
+            '항공사국문': buildAirlineKorean(r.FP1_AIRLINE, r.FP2_AIRLINE, prefix1, prefix2),
+            '항공사코드동일여부': matchToText(r.AOD_MATCH),
+            '편명번호길이동일여부': matchToText(r.FID_LEN_MATCH),
+            '편명번호동일숫자위치': matchPosToText(r.MATCH_POS),
+            '편명번호동일숫자갯수': r.MATCH_LEN ?? '',
+            '편명번호동일숫자구성비율(%)': r.COMP_RAT ?? '',
+            '편명유사도': getSimilarityGrade(r.SIMILARITY),
+            '최대동시관제량': r.CTRL_PEAK ?? '',
+            '공존시간(분)': calcCoexistMinutes(r.DETECTED, r.CLEARED),
+            '오류발생가능성': r.SCORE_PEAK ?? '',
+            '오류발생가능성_등급': getScoreGrade(r.SCORE_PEAK),
+            '관제사권고사항': getRecommendation(r.SIMILARITY, r.SCORE_PEAK),
+            '보고여부': Number(r.MARK) === 1 ? 'O' : '',
+            '보고일시(KST)': r.REPORTED || '',
+            '보고자': r.REPORTER || '',
+            '혼돈편명': hasReport ? (r.AO === 1 ? fp1 : r.AO === 2 ? fp2 : r.AO === 3 ? fp1 + ', ' + fp2 : '') : '',
+            '오류유형': hasReport ? (TYPE_MAP[r.TYPE] || String(r.TYPE || '')) : '',
+            '세부오류유형': hasReport ? (IMPACT_MAP[r.TYPE_DETAIL] || String(r.TYPE_DETAIL || '')) : '',
+            '비고': r.REMARK || ''
+        };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '유사호출부호데이터');
+
+    ws['!cols'] = [
+        { wch: 20 }, { wch: 20 }, { wch: 12 },
+        { wch: 12 }, { wch: 8 }, { wch: 8 },
+        { wch: 12 }, { wch: 8 }, { wch: 8 },
+        { wch: 22 }, { wch: 14 }, { wch: 20 },
+        { wch: 16 }, { wch: 18 },
+        { wch: 18 }, { wch: 18 }, { wch: 24 },
+        { wch: 12 }, { wch: 14 }, { wch: 12 },
+        { wch: 18 }, { wch: 18 },
+        { wch: 8 }, { wch: 14 },
+        { wch: 20 }, { wch: 8 }, { wch: 12 },
+        { wch: 12 }, { wch: 14 }, { wch: 30 }
+    ];
+
+    const now = new Date();
+    const filename = `유사호출부호_항공사제출_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.xlsx`;
+    XLSX.writeFile(wb, filename);
+}
+
 // 페이지 로드 시 초기화
 window.onload = init;

@@ -16,7 +16,7 @@
         <a href="/" class="header-banner" target="_top">
             <img src="img/title_image.png" alt="유사호출부호 경고 시스템" class="header-banner-img">
         </a>
-        <div class="header-center">항공교통본부</div>
+     
         <div class="header-right">
             <div class="header-shortcuts">
                 <a href="/" class="header-shortcut text-link" title="실시간 검출">실시간 검출</a>
@@ -295,6 +295,15 @@
                 </div>
             </div>
 
+            <!-- 뷰 전환 탭 -->
+            <div class="view-tabs" style="display: flex; gap: 0; margin-bottom: 20px;">
+                <button class="view-tab active" id="tab-reports" onclick="switchView('reports')">보고 목록</button>
+                <button class="view-tab" id="tab-airline" onclick="switchView('airline')">항공사 제출</button>
+            </div>
+
+            <!-- ========== 보고 목록 뷰 ========== -->
+            <div id="view-reports">
+
             <!-- 필터 섹션 -->
             <div class="card" style="margin-bottom: 20px;">
                 <div class="filter-section">
@@ -435,7 +444,6 @@
                         </div>
                         <button class="btn btn-ghost btn-sm" onclick="toggleExcelGradeInfo()">등급 기준</button>
                         <button class="btn btn-ghost btn-sm" onclick="downloadListExcel()">보고자 목록 엑셀</button>
-                        <button class="btn btn-ghost btn-sm" onclick="downloadExcel()">항공사 제출 엑셀</button>
                         <button class="btn btn-danger btn-sm" onclick="deleteSelected()">선택 삭제</button>
                     </div>
                 </div>
@@ -461,10 +469,8 @@
                     <span id="callsign-stats-info">조회기간: - | 호출부호 데이터: 0건</span>
                 </div>
             </div>
-        </div>
-
         <!-- 오른쪽 사이드바: 시간대별 + 오늘 검출 현황 -->
-        <div class="admin-sidebar">
+        <div class="admin-sidebar" id="admin-sidebar">
             <!-- 시간대별 현황 -->
             <div class="card">
                 <div class="card-header" style="margin-bottom: 10px;">
@@ -476,23 +482,19 @@
                         <div class="hourly-yaxis" id="hourly-yaxis">
                             <span>0</span><span>0</span><span>0</span>
                         </div>
-                        <div class="hourly-chart" id="hourly-chart">
-                            <!-- 동적 생성 -->
-                        </div>
+                        <div class="hourly-chart" id="hourly-chart"></div>
                     </div>
                     <div class="hourly-labels">
                         <span>00</span><span>06</span><span>12</span><span>18</span><span>23</span>
                     </div>
                 </div>
             </div>
-
             <!-- 오늘 검출 현황 -->
             <div class="card">
                 <div class="card-header" style="margin-bottom: 10px;">
                     <div class="card-title" style="margin-bottom: 0; font-size: 12px;">오늘 검출 현황</div>
                     <span id="today-detect-total" style="font-size: 13px; font-weight: 700; color: var(--accent-primary);">0건</span>
                 </div>
-                <!-- 위험도별 -->
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px;">
                     <div style="background: rgba(239,68,68,0.1); border-radius: 6px; padding: 10px; text-align: center;">
                         <div style="font-size: 20px; font-weight: 700; color: #f87171; font-family: var(--font-mono);" id="today-danger">0</div>
@@ -507,7 +509,6 @@
                         <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">보통</div>
                     </div>
                 </div>
-                <!-- 활성/해제 -->
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
                     <div style="background: rgba(16,185,129,0.1); border-radius: 6px; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 11px; color: var(--text-muted);">활성</span>
@@ -518,12 +519,100 @@
                         <span style="font-size: 16px; font-weight: 700; color: var(--text-muted); font-family: var(--font-mono);" id="today-cleared">0</span>
                     </div>
                 </div>
-                <!-- 섹터별 -->
-                <div id="today-sector-list" style="display: flex; flex-direction: column; gap: 3px;">
-                    <!-- 동적 생성 -->
-                </div>
+                <div id="today-sector-list" style="display: flex; flex-direction: column; gap: 3px;"></div>
             </div>
         </div>
+        </div><!-- /view-reports -->
+
+            <!-- ========== 항공사 제출 뷰 ========== -->
+            <div id="view-airline" style="display: none;">
+                <div class="card" style="margin-bottom: 20px;">
+                    <div class="filter-section">
+                        <div class="filter-group" style="gap: 4px;">
+                            <label>기간:</label>
+                            <button class="btn-preset active" data-airline-period="today" onclick="setAirlineDatePreset('today')">오늘</button>
+                            <button class="btn-preset" data-airline-period="week" onclick="setAirlineDatePreset('week')">1주</button>
+                            <button class="btn-preset" data-airline-period="month" onclick="setAirlineDatePreset('month')">1개월</button>
+                            <button class="btn-preset" data-airline-period="3month" onclick="setAirlineDatePreset('3month')">3개월</button>
+                            <button class="btn-preset" data-airline-period="custom" onclick="setAirlineDatePreset('custom')">직접입력</button>
+                        </div>
+                        <div class="filter-group" id="airline-date-range-group" style="display: none;">
+                            <input type="date" id="airline-from">
+                            <span style="color: var(--text-muted);">~</span>
+                            <input type="date" id="airline-to">
+                        </div>
+                        <div class="filter-group" style="position: relative;">
+                            <label>섹터:</label>
+                            <button class="btn btn-ghost btn-sm" id="airline-sector-btn" onclick="toggleAirlineSectorDropdown()" style="min-width: 100px;">인천 섹터</button>
+                            <div id="airline-sector-dropdown" style="display:none; position:absolute; top:100%; left:0; z-index:50; background:#1e293b; border:1px solid var(--glass-border); border-radius:8px; padding:8px; min-width:200px; max-height:300px; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,0.5);">
+                                <label style="display:flex;align-items:center;gap:6px;padding:5px 8px;cursor:pointer;font-size:13px;color:var(--accent-primary);font-weight:700;border-bottom:1px solid var(--glass-border);margin-bottom:4px;">
+                                    <input type="checkbox" id="airline-sector-all" onchange="toggleAirlineAllSectors(this)"> 전체
+                                </label>
+                                <div id="airline-sector-list"></div>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary btn-sm" onclick="loadAirlineData()">검색</button>
+                        <button class="btn btn-ghost btn-sm" onclick="exportAirlineExcel()">Excel 내보내기</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">항공사 제출 목록 (<span id="airline-count">0</span>건)</div>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <span style="font-size: 12px; color: var(--text-muted);">페이지당</span>
+                            <select id="airline-page-size" onchange="changeAirlinePageSize()" style="font-size: 12px; height: 28px;">
+                                <option value="50">50</option>
+                                <option value="100" selected>100</option>
+                                <option value="200">200</option>
+                                <option value="500">500</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-container" style="overflow-x: auto;">
+                        <table id="airline-table" style="min-width: 1600px;">
+                            <thead>
+                                <tr>
+                                    <th>시작일시</th>
+                                    <th>종료일시</th>
+                                    <th>섹터</th>
+                                    <th>편명1</th>
+                                    <th>출발1</th>
+                                    <th>도착1</th>
+                                    <th>편명2</th>
+                                    <th>출발2</th>
+                                    <th>도착2</th>
+                                    <th>편명1|편명2</th>
+                                    <th>항공사구분</th>
+                                    <th>항공사국문</th>
+                                    <th>코드동일</th>
+                                    <th>길이동일</th>
+                                    <th>동일위치</th>
+                                    <th>동일갯수</th>
+                                    <th>구성비(%)</th>
+                                    <th>편명유사도</th>
+                                    <th>최대관제량</th>
+                                    <th>공존(분)</th>
+                                    <th>오류가능성</th>
+                                    <th>가능성등급</th>
+                                    <th>권고사항</th>
+                                    <th>보고</th>
+                                    <th>보고일시</th>
+                                    <th>보고자</th>
+                                    <th>혼돈편명</th>
+                                    <th>오류유형</th>
+                                    <th>세부유형</th>
+                                    <th>비고</th>
+                                </tr>
+                            </thead>
+                            <tbody id="airline-tbody"></tbody>
+                        </table>
+                    </div>
+                    <div id="airline-pagination" style="padding: 12px 15px; display: flex; justify-content: center; align-items: center; gap: 6px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    </div>
+                </div>
+            </div><!-- /view-airline -->
+
         </div>
     </div>
 
