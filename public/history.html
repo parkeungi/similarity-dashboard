@@ -36,8 +36,8 @@
     <div class="container">
         <div id="main-content" class="content-section full-width active">
 
-            <!-- 통계 카드 (6개) -->
-            <div class="stats-grid" style="grid-template-columns: repeat(6, 1fr);">
+            <!-- 통계 카드 (7개) -->
+            <div class="stats-grid" style="grid-template-columns: repeat(7, 1fr);">
                 <div class="stat-card">
                     <div class="stat-value" id="stat-total" style="color: var(--accent-primary);">0</div>
                     <div class="stat-label">총 검출</div>
@@ -62,11 +62,15 @@
                     <div class="stat-value" id="stat-cleared" style="color: var(--text-muted);">0</div>
                     <div class="stat-label">해제</div>
                 </div>
+                <div class="stat-card" style="cursor: pointer; border: 1px solid rgba(245, 158, 11, 0.2);" onclick="switchTab('recommend')">
+                    <div class="stat-value" id="stat-recommend" style="color: var(--accent-warning);">0</div>
+                    <div class="stat-label">누락 추천</div>
+                </div>
             </div>
 
             <!-- 필터 섹션 -->
-            <div class="card" style="margin-bottom: 20px;">
-                <div class="filter-section">
+            <div class="card" style="margin-bottom: 20px; overflow: visible; position: relative; z-index: 10;">
+                <div class="filter-section" style="overflow: visible;">
                     <div class="filter-group" style="gap: 4px;">
                         <label>기간:</label>
                         <button class="btn-preset active" data-period="today" onclick="setDatePreset('today')">오늘</button>
@@ -80,11 +84,15 @@
                         <span style="color: var(--text-muted);">~</span>
                         <input type="date" id="filter-to">
                     </div>
-                    <div class="filter-group">
+                    <div class="filter-group" style="position: relative;">
                         <label>섹터:</label>
-                        <select id="filter-sector">
-                            <option value="ALL">전체</option>
-                        </select>
+                        <button class="btn btn-ghost btn-sm" onclick="toggleHistorySectorDropdown()" id="history-sector-btn" style="min-width: 80px;">인천 전체</button>
+                        <div id="history-sector-dropdown" style="display:none; position:absolute; top:100%; left:40px; z-index:50; background:#1e293b; border:1px solid var(--glass-border); border-radius:8px; padding:8px; min-width:200px; max-height:300px; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,0.5);">
+                            <label style="display:flex;align-items:center;gap:6px;padding:5px 8px;cursor:pointer;font-size:13px;color:var(--accent-primary);font-weight:700;border-bottom:1px solid var(--glass-border);margin-bottom:4px;">
+                                <input type="checkbox" id="history-sector-all" onchange="toggleHistoryAllSectors(this)"> 전체 섹터
+                            </label>
+                            <div id="history-sector-list" style="display:flex;flex-wrap:wrap;gap:2px;"></div>
+                        </div>
                     </div>
                     <div class="filter-group">
                         <label>위험도:</label>
@@ -124,8 +132,20 @@
                 </div>
             </div>
 
-            <!-- 검출 목록 테이블 -->
-            <div class="card">
+            <!-- 탭 헤더 -->
+            <div class="card" style="margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding-bottom: 0;">
+                <div style="display: flex; gap: 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                    <button id="tab-btn-history" class="tab-btn active" onclick="switchTab('history')">
+                        검출 목록 <span id="tab-count-history" style="font-size: 11px; opacity: 0.7; margin-left: 4px;">(0)</span>
+                    </button>
+                    <button id="tab-btn-recommend" class="tab-btn" onclick="switchTab('recommend')">
+                        누락 추천 <span id="tab-count-recommend" style="font-size: 11px; opacity: 0.7; margin-left: 4px;">(0)</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 탭 1: 검출 목록 (기존) -->
+            <div id="tab-history" class="card tab-panel" style="border-top-left-radius: 0; border-top-right-radius: 0; margin-top: 0;">
                 <div class="card-header">
                     <div class="card-title">검출 목록 (<span id="data-count">0</span>건)</div>
                     <div style="display: flex; gap: 10px;">
@@ -153,6 +173,52 @@
                     </table>
                 </div>
                 <div id="pagination" style="padding: 12px 15px; background: rgba(15,23,42,0.5); border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: center; align-items: center; gap: 8px;">
+                    <!-- 동적으로 생성됨 -->
+                </div>
+            </div>
+
+            <!-- 탭 2: 누락 추천 -->
+            <div id="tab-recommend" class="card tab-panel" style="border-top-left-radius: 0; border-top-right-radius: 0; margin-top: 0; display: none;">
+                <!-- 미등록 패턴 등록 패널 -->
+                <div style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: 8px; margin: 15px 15px 0; padding: 15px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <div style="font-size: 13px; font-weight: 700; color: var(--accent-danger);">
+                            미등록 패턴 — 유사도 등급을 지정하여 기준 테이블에 등록
+                        </div>
+                        <button class="btn btn-ghost btn-sm" onclick="loadUnregisteredPatterns()" style="font-size: 11px;">새로고침</button>
+                    </div>
+                    <div id="unregistered-patterns" style="max-height: 300px; overflow-y: auto;">
+                        <!-- 동적으로 생성됨 -->
+                    </div>
+                </div>
+
+                <div class="card-header" style="margin-top: 10px;">
+                    <div class="card-title">기준 미등록 검출 건 (<span id="recommend-count">0</span>건)</div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span style="font-size: 11px; color: var(--text-muted);">기준 테이블에 패턴이 없어 유사도가 -1로 산출된 항목</span>
+                        <button class="btn btn-ghost btn-sm" onclick="downloadRecommendExcel()">Excel 저장</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="recommend-table">
+                        <thead>
+                            <tr>
+                                <th>검출시각</th>
+                                <th>해제시각</th>
+                                <th>섹터</th>
+                                <th>유사호출부호</th>
+                                <th>항공사</th>
+                                <th>예상 유사도</th>
+                                <th>동시관제량</th>
+                                <th>공존시간</th>
+                                <th>경로</th>
+                                <th>일치 특성</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recommend-tbody"></tbody>
+                    </table>
+                </div>
+                <div id="recommend-pagination" style="padding: 12px 15px; background: rgba(15,23,42,0.5); border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: center; align-items: center; gap: 8px;">
                     <!-- 동적으로 생성됨 -->
                 </div>
             </div>

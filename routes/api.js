@@ -4,25 +4,37 @@ const oracledb = require('oracledb');
 const fs = require('fs');
 const db = require('../config/database');
 const { kstToUtc, utcToKst, convertRowsToKst, getKstToday, getKstNow, getSeasonalLookback } = require('../config/timeUtil');
-const { getCachedSettings, invalidateCache, normalizeThresholds, SETTINGS_PATH } = require('../config/settingsCache');
+const { getCachedSettings, invalidateCache, normalizeThresholds, safeErrorMessage, SETTINGS_PATH } = require('../config/settingsCache');
 
 // Oracle 쿼리 타임아웃 (30초) - Oracle 11g Thick에서는 callTimeout 미지원
 // JS 레벨 Promise.race로 구현
 const QUERY_TIMEOUT = 30000;
 
 function executeWithTimeout(conn, sql, binds, options) {
-    return Promise.race([
-        conn.execute(sql, binds, options),
-        new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('쿼리 타임아웃 (30초 초과)')), QUERY_TIMEOUT)
-        )
-    ]);
-}
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+            if (!settled) {
+                settled = true;
+                try { conn.break(); } catch (e) { /* ignore */ }
+                reject(new Error('쿼리 타임아웃 (30초 초과)'));
+            }
+        }, QUERY_TIMEOUT);
 
-// 에러 메시지 안전하게 처리 (내부 정보 노출 방지)
-function safeErrorMessage(err) {
-    console.error('Error:', err); // 서버 로그에만 상세 기록
-    return '요청 처리 중 오류가 발생했습니다.';
+        conn.execute(sql, binds, options).then(result => {
+            if (!settled) {
+                settled = true;
+                clearTimeout(timer);
+                resolve(result);
+            }
+        }).catch(err => {
+            if (!settled) {
+                settled = true;
+                clearTimeout(timer);
+                reject(err);
+            }
+        });
+    });
 }
 
 function getDefaultSettings() {
@@ -119,9 +131,11 @@ function buildSimilarityFilter(displaySimilarity, thresholds, binds = {}, colPre
     return ' AND (' + conditions.join(' OR ') + ')';
 }
 
-// 설정 저장 (캐시 무효화 포함)
+// 설정 저장 (원자적 쓰기 + 캐시 무효화)
 function saveSettings(settings) {
-    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8');
+    const tmpPath = SETTINGS_PATH + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2), 'utf8');
+    fs.renameSync(tmpPath, SETTINGS_PATH);
     invalidateCache();
 }
 
@@ -207,7 +221,7 @@ router.post('/config', (req, res) => {
         const settings = {
             displaySectors: displaySectors !== undefined ? displaySectors : (currentSettings.displaySectors || []),
             displaySimilarity: displaySimilarity !== undefined ? displaySimilarity : (currentSettings.displaySimilarity || []),
-            refreshRate: refreshRate || 10000,
+            refreshRate: Math.max(refreshRate || 10000, 3000),
             maxRows: maxRows || 100,
             sectorMap: sectorMap !== undefined ? sectorMap : (currentSettings.sectorMap || {}),
             fixedSectors: fixedSectors !== undefined ? fixedSectors : (currentSettings.fixedSectors || []),
@@ -263,6 +277,14 @@ router.get('/callsigns', async (req, res) => {
             const placeholders = sectorList.map((_, i) => `:s${i}`).join(',');
             sql += ` AND T.CCP IN (${placeholders})`;
             sectorList.forEach((s, i) => { binds[`s${i}`] = s; });
+        } else {
+            // 파라미터 없으면 fixedSectors로 제한 (history.js와 동일)
+            const fixedSectors = settings.fixedSectors || [];
+            if (fixedSectors.length > 0) {
+                const placeholders = fixedSectors.map((_, i) => `:fs${i}`).join(',');
+                sql += ` AND T.CCP IN (${placeholders})`;
+                fixedSectors.forEach((s, i) => { binds[`fs${i}`] = s; });
+            }
         }
 
         sql += ' ORDER BY T.DETECTED DESC';
@@ -297,11 +319,21 @@ router.get('/sectors', async (req, res) => {
         const sectorBinds = {};
         const similarityFilter = buildSimilarityFilter(settings.displaySimilarity, settings.thresholds, sectorBinds);
 
+        // fixedSectors로 제한 (history.js와 동일)
+        let sectorFilter = '';
+        const fixedSectors = settings.fixedSectors || [];
+        if (fixedSectors.length > 0) {
+            const placeholders = fixedSectors.map((_, i) => `:fs${i}`).join(',');
+            sectorFilter = ` AND CCP IN (${placeholders})`;
+            fixedSectors.forEach((s, i) => { sectorBinds[`fs${i}`] = s; });
+        }
+
         const result = await conn.execute(`
             SELECT CCP, COUNT(*) as CNT
             FROM T_SIMILAR_CALLSIGN_PAIR
             WHERE CLEARED = '9999-12-31 23:59:59'
             ${similarityFilter}
+            ${sectorFilter}
             GROUP BY CCP
             ORDER BY CCP
         `, sectorBinds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
@@ -357,7 +389,7 @@ router.get('/reporters', async (req, res) => {
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error('reporters 조회 오류:', err);
-        res.json({ success: false, data: [], error: '보고자 목록 조회 실패' });
+        res.status(500).json({ success: false, data: [], error: '보고자 목록 조회 실패' });
     } finally {
         if (conn) await conn.close();
     }
@@ -379,12 +411,14 @@ router.get('/hourly-stats', async (req, res) => {
 
         // 유사도 필터 조건 생성 (바인드 변수)
         const similarityFilter = buildSimilarityFilter(settings.displaySimilarity, settings.thresholds, binds);
+
+        // fixedSectors로 제한 (history.js와 동일)
         let sectorFilter = '';
-        const displaySectors = settings.displaySectors || [];
-        if (displaySectors.length > 0) {
-            const placeholders = displaySectors.map((_, i) => `:s${i}`).join(',');
+        const fixedSectors = settings.fixedSectors || [];
+        if (fixedSectors.length > 0) {
+            const placeholders = fixedSectors.map((_, i) => `:fs${i}`).join(',');
             sectorFilter = ` AND CCP IN (${placeholders})`;
-            displaySectors.forEach((s, i) => { binds[`s${i}`] = s; });
+            fixedSectors.forEach((s, i) => { binds[`fs${i}`] = s; });
         }
 
         // DETECTED(UTC)를 KST 시간으로 변환하여 그룹핑
@@ -439,7 +473,7 @@ router.get('/control-counts', async (req, res) => {
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error('관제 건수 조회 오류:', err);
-        res.json({ success: false, data: [], error: '관제 건수 조회 실패' });
+        res.status(500).json({ success: false, data: [], error: '관제 건수 조회 실패' });
     } finally {
         if (conn) await conn.close();
     }
@@ -571,6 +605,27 @@ router.post('/reports', async (req, res) => {
         const safeRemark = (remark || '-').substring(0, 500);
 
         conn = await db.getConnection();
+
+        // 동일 IDX 보고서 중복 제출 방지 (10초 이내 재제출 차단)
+        const dupCheck = await conn.execute(`
+            SELECT COUNT(*) AS CNT FROM T_SIMILAR_CALLSIGN_PAIR_REPORT
+            WHERE IDX = :idx
+            AND REPORTED >= :recentLimit
+        `, {
+            idx: Number(idx),
+            recentLimit: (() => {
+                const d = new Date(reported.replace(' ', 'T'));
+                d.setSeconds(d.getSeconds() - 10);
+                const pad = n => String(n).padStart(2, '0');
+                return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' +
+                       pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+            })()
+        }, { outFormat: require('oracledb').OUT_FORMAT_OBJECT });
+
+        if (dupCheck.rows[0].CNT > 0) {
+            return res.status(409).json({ success: false, error: '이미 보고된 건입니다. 잠시 후 다시 시도해주세요.' });
+        }
+
         await conn.execute(`
             INSERT INTO T_SIMILAR_CALLSIGN_PAIR_REPORT
             (IDX, REPORTED, REPORTER, AO, TYPE, TYPE_DETAIL, REMARK)
@@ -678,6 +733,8 @@ router.get('/callsigns/predictions', async (req, res) => {
                 FROM T_SIMILAR_CALLSIGN_PAIR T
                 WHERE T.CLEARED <> '9999-12-31 23:59:59'
                   AND T.SIMILARITY > :cautionThreshold
+                  AND (TO_DATE(T.CLEARED, 'YYYY-MM-DD HH24:MI:SS')
+                     - TO_DATE(T.DETECTED, 'YYYY-MM-DD HH24:MI:SS')) * 86400 >= 180
                   AND (${dateConditions})
                   AND TO_NUMBER(TO_CHAR(
                       TO_DATE(T.DETECTED, 'YYYY-MM-DD HH24:MI:SS') + 9/24, 'HH24'
@@ -694,6 +751,7 @@ router.get('/callsigns/predictions', async (req, res) => {
                   )
                   ${sectorFilter}
                 GROUP BY T.FP1_CALLSIGN, T.FP2_CALLSIGN
+                HAVING COUNT(*) >= 2
                 ORDER BY COUNT(*) DESC
             )
             WHERE ROWNUM <= 50

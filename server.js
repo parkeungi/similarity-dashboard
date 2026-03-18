@@ -20,7 +20,7 @@ function startRateLimitCleanup(windowMs = 60000) {
                 rateLimitStore.delete(key);
             }
         }
-    }, 300000); // 5분마다 정리
+    }, 60000); // 1분마다 정리 (windowMs와 동일)
 }
 
 // 정리 interval 중지 (서버 종료 시 호출)
@@ -172,5 +172,12 @@ async function gracefulShutdown(signal) {
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+    gracefulShutdown('uncaughtException');
+});
 
 startServer();

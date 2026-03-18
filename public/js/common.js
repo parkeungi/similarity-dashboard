@@ -27,6 +27,12 @@ let SECTOR_MAP = {
 let FIXED_SECTORS = ['3', '2', '10', '9', '11', '13', '12']; // GL, GH, KL, KH, JN, JL, JH
 
 /**
+ * 인천섹터 코드 목록 (기본 체크 대상, 서버 설정과 무관하게 고정)
+ * @type {string[]}
+ */
+const INCHEON_SECTORS = ['3', '2', '10', '9', '11', '13', '12']; // GL, GH, KL, KH, JN, JL, JH
+
+/**
  * 섹터 이름 → 섹터 코드 역방향 매핑 (ATFM 연동용)
  * @type {Object<string, string>}
  */
@@ -233,9 +239,7 @@ function escapeHtml(str) {
  */
 function updateClock() {
     const now = new Date();
-    // KST = UTC + 9시간
-    const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    const timeStr = kst.toISOString().split('T')[1].split('.')[0]; // HH:MM:SS
+    const timeStr = now.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false });
     const clockElement = document.getElementById('realtime-clock');
     if (clockElement) {
         clockElement.textContent = timeStr;

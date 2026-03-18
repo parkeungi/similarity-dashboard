@@ -95,39 +95,42 @@ function getKstNow() {
 function getSeasonalLookback(kstMonth, kstYear) {
     const results = [];
 
-    if (kstMonth === 11) {
-        // 동계 시작 → 하계 마지막 달(10월)만
-        results.push({ year: kstYear, month: 10 });
+    if (kstMonth === 11 || kstMonth === 3) {
+        // 시즌 시작월 → 같은 달만 참조 (이전 시즌 데이터 불필요)
+        results.push({ year: kstYear, month: kstMonth });
     } else if (kstMonth === 12) {
-        // 동계 → 11월만
+        // 동계 → 11, 12월
         results.push({ year: kstYear, month: 11 });
+        results.push({ year: kstYear, month: 12 });
     } else if (kstMonth === 1) {
-        // 동계 → 11, 12월 (전년)
-        results.push({ year: kstYear - 1, month: 11 });
-        results.push({ year: kstYear - 1, month: 12 });
-    } else if (kstMonth === 2) {
-        // 동계 → 11, 12, 1월 (3개월)
+        // 동계 → 11, 12월(전년), 1월
         results.push({ year: kstYear - 1, month: 11 });
         results.push({ year: kstYear - 1, month: 12 });
         results.push({ year: kstYear, month: 1 });
-    } else if (kstMonth === 3) {
-        // 하계 시작 → 전년 하계 마지막 달(10월)만
-        results.push({ year: kstYear - 1, month: 10 });
+    } else if (kstMonth === 2) {
+        // 동계 → 11, 12월(전년), 1, 2월
+        results.push({ year: kstYear - 1, month: 11 });
+        results.push({ year: kstYear - 1, month: 12 });
+        results.push({ year: kstYear, month: 1 });
+        results.push({ year: kstYear, month: 2 });
     } else if (kstMonth === 4) {
-        // 하계 → 3월만
-        results.push({ year: kstYear, month: 3 });
-    } else if (kstMonth === 5) {
         // 하계 → 3, 4월
         results.push({ year: kstYear, month: 3 });
         results.push({ year: kstYear, month: 4 });
+    } else if (kstMonth === 5) {
+        // 하계 → 3, 4, 5월
+        results.push({ year: kstYear, month: 3 });
+        results.push({ year: kstYear, month: 4 });
+        results.push({ year: kstYear, month: 5 });
     } else {
-        // 하계 6~10월 → 최근 3개월
+        // 하계 6~10월 → 최근 3개월 + 현재월
         for (let i = 3; i >= 1; i--) {
             let m = kstMonth - i;
             let y = kstYear;
             if (m <= 0) { m += 12; y--; }
             results.push({ year: y, month: m });
         }
+        results.push({ year: kstYear, month: kstMonth });
     }
 
     return results;

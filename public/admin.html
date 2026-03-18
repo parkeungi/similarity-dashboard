@@ -66,6 +66,7 @@
                     <button class="cfg-tab active" data-tab="basic" onclick="switchCfgTab('basic')">기본 설정</button>
                     <button class="cfg-tab" data-tab="sectormap" onclick="switchCfgTab('sectormap')">섹터 맵핑</button>
                     <button class="cfg-tab" data-tab="errortypes" onclick="switchCfgTab('errortypes')">오류유형 관리</button>
+                    <button class="cfg-tab" data-tab="help" onclick="switchCfgTab('help')">도움말</button>
                 </div>
 
                 <!-- 탭 1: 기본 설정 -->
@@ -194,6 +195,84 @@
                             </div>
                             <button class="btn btn-ghost btn-sm" style="margin-top: 10px;" onclick="addDetailTypeRow()">+ 추가</button>
                         </div>
+                    </div>
+                </div>
+
+                <!-- 탭 4: 도움말 -->
+                <div id="cfg-tab-help" class="cfg-tab-content" style="display: none;">
+                    <div style="background: rgba(15,23,42,0.5); padding: 20px; border-radius: 8px; border: 1px solid var(--glass-border); line-height: 1.8; font-size: 13px; color: #94a3b8;">
+
+                        <div style="font-size: 15px; font-weight: 700; color: #e2e8f0; margin-bottom: 12px; border-bottom: 1px solid var(--glass-border); padding-bottom: 8px;">위험도 판정 기준</div>
+                        <table style="width: 100%; margin-bottom: 20px; font-size: 12px;">
+                            <thead>
+                                <tr>
+                                    <th style="padding: 6px 10px; font-size: 12px;">등급</th>
+                                    <th style="padding: 6px 10px; font-size: 12px;">유사도 (SIMILARITY)</th>
+                                    <th style="padding: 6px 10px; font-size: 12px;">오류가능성 (SCORE_PEAK)</th>
+                                    <th style="padding: 6px 10px; font-size: 12px;">권고사항</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td style="padding: 6px 10px;"><span style="color: #f87171; font-weight:700;">매우높음</span></td><td style="padding: 6px 10px;">&gt; 2 (설정 가능)</td><td style="padding: 6px 10px;">&ge; 40 (설정 가능)</td><td style="padding: 6px 10px; color: #f87171;">즉시조치</td></tr>
+                                <tr><td style="padding: 6px 10px;"><span style="color: #fbbf24; font-weight:700;">높음</span></td><td style="padding: 6px 10px;">&gt; 1 (설정 가능)</td><td style="padding: 6px 10px;">&ge; 20 (설정 가능)</td><td style="padding: 6px 10px; color: #fbbf24;">주의관찰</td></tr>
+                                <tr><td style="padding: 6px 10px;"><span style="color: #7dd3fc; font-weight:700;">보통</span></td><td style="padding: 6px 10px;">&le; 1</td><td style="padding: 6px 10px;">&lt; 20</td><td style="padding: 6px 10px; color: #7dd3fc;">정상감시</td></tr>
+                            </tbody>
+                        </table>
+
+                        <div style="font-size: 15px; font-weight: 700; color: #e2e8f0; margin-bottom: 12px; border-bottom: 1px solid var(--glass-border); padding-bottom: 8px;">예측 기능</div>
+                        <p>관제사 화면 하단에 <span style="color: var(--accent-primary); font-weight: 700;">(예측)</span> 표시로 나타나는 항목입니다.</p>
+                        <ul style="padding-left: 20px; margin: 8px 0;">
+                            <li><b>원리:</b> 과거 동일 요일, 다음 1시간대에 검출된 이력을 기반으로 예측</li>
+                            <li><b>대상:</b> 유사도 <span style="color: #fbbf24;">높음</span> 이상 + 공존시간 3분 이상인 종료된 건만</li>
+                            <li><b>갱신:</b> 5분 주기 자동 갱신, 정시 변경 시 즉시 교체</li>
+                            <li><b>소멸:</b> 예측 시간대가 도래하면 자동으로 사라지고 다음 시간대 예측으로 교체</li>
+                        </ul>
+
+                        <div style="font-size: 14px; font-weight: 700; color: #cbd5e1; margin: 16px 0 8px;">시즌별 조회 범위</div>
+                        <p>항공 스케줄은 <b>하계(3~10월)</b> / <b>동계(11~2월)</b>로 나뉘며, 같은 시즌 내 데이터만 참조합니다.</p>
+                        <table style="width: 100%; margin: 8px 0; font-size: 12px;">
+                            <thead>
+                                <tr>
+                                    <th style="padding: 6px 10px; font-size: 12px;">현재 월</th>
+                                    <th style="padding: 6px 10px; font-size: 12px;">시즌</th>
+                                    <th style="padding: 6px 10px; font-size: 12px;">조회 대상</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td style="padding: 5px 10px;">3월</td><td style="padding: 5px 10px;">하계 시작</td><td style="padding: 5px 10px;">3월만 (시즌 전환, 이전 시즌 참조 안함)</td></tr>
+                                <tr><td style="padding: 5px 10px;">4월</td><td style="padding: 5px 10px;">하계</td><td style="padding: 5px 10px;">3~4월</td></tr>
+                                <tr><td style="padding: 5px 10px;">5월</td><td style="padding: 5px 10px;">하계</td><td style="padding: 5px 10px;">3~5월</td></tr>
+                                <tr><td style="padding: 5px 10px;">6~10월</td><td style="padding: 5px 10px;">하계</td><td style="padding: 5px 10px;">최근 3개월</td></tr>
+                                <tr><td style="padding: 5px 10px;">11월</td><td style="padding: 5px 10px;">동계 시작</td><td style="padding: 5px 10px;">11월만 (시즌 전환, 이전 시즌 참조 안함)</td></tr>
+                                <tr><td style="padding: 5px 10px;">12월</td><td style="padding: 5px 10px;">동계</td><td style="padding: 5px 10px;">11~12월</td></tr>
+                                <tr><td style="padding: 5px 10px;">1월</td><td style="padding: 5px 10px;">동계</td><td style="padding: 5px 10px;">전년 11~12월 + 1월</td></tr>
+                                <tr><td style="padding: 5px 10px;">2월</td><td style="padding: 5px 10px;">동계</td><td style="padding: 5px 10px;">전년 11~12월 + 1~2월</td></tr>
+                            </tbody>
+                        </table>
+
+                        <div style="font-size: 14px; font-weight: 700; color: #cbd5e1; margin: 16px 0 8px;">예시</div>
+                        <div style="background: rgba(30,41,59,0.5); padding: 12px; border-radius: 6px; font-family: 'Consolas', monospace; font-size: 12px; line-height: 1.6;">
+                            현재: 3월 화요일 15:34 KST<br>
+                            → 다음 시간대: 16:00~17:00<br>
+                            → 조회: 3월의 화요일 16시대에 검출된 이력<br>
+                            → 유사도 높음 이상 + 공존 3분 이상 + 현재 실시간 활성 아닌 건
+                        </div>
+
+                        <div style="font-size: 15px; font-weight: 700; color: #e2e8f0; margin: 20px 0 12px; border-bottom: 1px solid var(--glass-border); padding-bottom: 8px;">유사도 등급 필터</div>
+                        <ul style="padding-left: 20px; margin: 8px 0;">
+                            <li><b>기본 설정</b> 탭에서 표시할 유사도 등급을 선택할 수 있습니다</li>
+                            <li>선택한 등급은 관제사 실시간 화면과 관리자 검출 목록 모두에 적용됩니다</li>
+                            <li>체크하지 않으면 전체 등급이 표시됩니다</li>
+                            <li>Excel 반출 시에도 선택한 등급만 반출됩니다</li>
+                        </ul>
+
+                        <div style="font-size: 15px; font-weight: 700; color: #e2e8f0; margin: 20px 0 12px; border-bottom: 1px solid var(--glass-border); padding-bottom: 8px;">설정 변경 안내</div>
+                        <ul style="padding-left: 20px; margin: 8px 0;">
+                            <li>모든 설정은 <b>설정 저장</b> 버튼을 눌러야 반영됩니다</li>
+                            <li>저장 즉시 모든 관제사 브라우저에 자동 반영 (서버 재시작 불필요)</li>
+                            <li>위험도 기준값은 관제사 화면의 색상 구분과 권고사항 판정에 사용됩니다</li>
+                            <li>Excel 반출 등급 기준은 settings.json 직접 편집이 필요합니다</li>
+                        </ul>
                     </div>
                 </div>
 
@@ -361,7 +440,8 @@
                             </div>
                         </div>
                         <button class="btn btn-ghost btn-sm" onclick="toggleExcelGradeInfo()">등급 기준</button>
-                        <button class="btn btn-ghost btn-sm" onclick="downloadExcel()">Excel 저장</button>
+                        <button class="btn btn-ghost btn-sm" onclick="downloadListExcel()">보고자 목록 엑셀</button>
+                        <button class="btn btn-ghost btn-sm" onclick="downloadExcel()">항공사 제출 엑셀</button>
                         <button class="btn btn-danger btn-sm" onclick="deleteSelected()">선택 삭제</button>
                     </div>
                 </div>

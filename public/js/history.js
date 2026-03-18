@@ -39,6 +39,23 @@ let PAGINATION_META = null;
  */
 let currentPage = 1;
 
+// ==================== 누락 추천 탭 상태 ====================
+
+/** 현재 활성 탭 ('history' | 'recommend') */
+let activeTab = 'history';
+
+/** 추천 데이터 */
+let RECOMMEND_DATA = [];
+
+/** 추천 페이지네이션 메타 */
+let RECOMMEND_PAGINATION = null;
+
+/** 추천 현재 페이지 */
+let recommendPage = 1;
+
+/** 추천 요약 통계 */
+let RECOMMEND_SUMMARY = null;
+
 /**
  * 페이지당 표시 건수
  * @constant {number}
@@ -50,6 +67,12 @@ const PAGE_SIZE = 50;
  * @type {boolean}
  */
 let chartRendered = false;
+
+/**
+ * 서버 설정에서 로드한 오류유형/세부유형 라벨 맵
+ * @type {{ errorTypes: Object, errorDetailTypes: Object }}
+ */
+let CONFIG_LABELS = { errorTypes: {}, errorDetailTypes: {} };
 
 // ==================== 초기화 ====================
 
@@ -74,7 +97,8 @@ async function init() {
         // 데이터 로드 (병렬 실행으로 초기 로딩 시간 단축)
         await Promise.all([
             loadData(),
-            loadSummary()
+            loadSummary(),
+            loadRecommendSummary()
         ]);
 
         // 테이블 행 클릭 이벤트 위임 (tbody에 1회만 등록)
@@ -117,28 +141,85 @@ async function loadViewConfig() {
             updateSectorConfig(result.data.sectorMap, result.data.fixedSectors || []);
         }
         updateRiskThresholds(result.data.thresholds || getRiskThresholds());
+
+        // 오류유형/세부유형 라벨 맵 구성 (Excel 반출용)
+        if (Array.isArray(result.data.errorTypes)) {
+            CONFIG_LABELS.errorTypes = {};
+            result.data.errorTypes.forEach(t => { CONFIG_LABELS.errorTypes[String(t.value)] = t.label; });
+        }
+        if (Array.isArray(result.data.errorDetailTypes)) {
+            CONFIG_LABELS.errorDetailTypes = {};
+            result.data.errorDetailTypes.forEach(t => { CONFIG_LABELS.errorDetailTypes[String(t.value)] = t.label; });
+        }
     } catch (err) {
         console.error('화면 설정 로드 실패:', err);
     }
 }
 
 /**
- * 섹터 필터 드롭다운 옵션 생성
- *
- * @description FIXED_SECTORS 배열 기반으로 섹터 선택 옵션 구성.
- *              '전체' 옵션이 기본값으로 포함됨.
+ * 섹터 필터 체크박스 생성 (인천섹터 기본 체크)
  */
 function loadSectorOptions() {
-    const select = document.getElementById('filter-sector');
-    select.innerHTML = '<option value="ALL">전체</option>';
+    const list = document.getElementById('history-sector-list');
+    if (!list) return;
+    list.innerHTML = '';
 
-    FIXED_SECTORS.forEach(ccp => {
-        const option = document.createElement('option');
-        option.value = ccp;
-        option.textContent = getSectorName(ccp);
-        select.appendChild(option);
+    // 전체 섹터 목록 (FIXED_SECTORS + SECTOR_MAP의 나머지)
+    const allCodes = new Set([...FIXED_SECTORS, ...Object.keys(SECTOR_MAP)]);
+
+    allCodes.forEach(ccp => {
+        const isIncheon = INCHEON_SECTORS.includes(ccp);
+        const label = document.createElement('label');
+        label.style.cssText = 'display:flex;align-items:center;gap:5px;padding:4px 8px;cursor:pointer;font-size:12px;border-radius:4px;background:rgba(30,41,59,0.5);';
+        label.innerHTML = `<input type="checkbox" class="history-sector-cb" value="${ccp}" ${isIncheon ? 'checked' : ''} onchange="updateHistorySectorBtn()"> ${escapeHtml(getSectorName(ccp))}`;
+        list.appendChild(label);
     });
+
+    updateHistorySectorBtn();
 }
+
+function toggleHistorySectorDropdown() {
+    const dd = document.getElementById('history-sector-dropdown');
+    dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleHistoryAllSectors(master) {
+    document.querySelectorAll('.history-sector-cb').forEach(cb => { cb.checked = master.checked; });
+    updateHistorySectorBtn();
+}
+
+function updateHistorySectorBtn() {
+    const all = document.querySelectorAll('.history-sector-cb');
+    const checked = document.querySelectorAll('.history-sector-cb:checked');
+    const btn = document.getElementById('history-sector-btn');
+    const masterCb = document.getElementById('history-sector-all');
+
+    if (masterCb) masterCb.checked = checked.length === all.length;
+
+    if (checked.length === 0 || checked.length === all.length) {
+        btn.textContent = '전체 섹터';
+    } else if (checked.length <= 3) {
+        btn.textContent = Array.from(checked).map(cb => getSectorName(cb.value)).join(', ');
+    } else {
+        btn.textContent = `${checked.length}개 섹터`;
+    }
+}
+
+function getSelectedHistorySectors() {
+    const all = document.querySelectorAll('.history-sector-cb');
+    const checked = document.querySelectorAll('.history-sector-cb:checked');
+    if (checked.length === 0 || checked.length === all.length) return '';
+    return Array.from(checked).map(cb => cb.value).join(',');
+}
+
+// 드롭다운 외부 클릭 시 닫기
+document.addEventListener('click', function(e) {
+    const dd = document.getElementById('history-sector-dropdown');
+    const btn = document.getElementById('history-sector-btn');
+    if (dd && btn && !dd.contains(e.target) && e.target !== btn) {
+        dd.style.display = 'none';
+    }
+});
 
 // ==================== 데이터 로드 ====================
 
@@ -232,14 +313,14 @@ async function loadSummary() {
 function buildDataUrl() {
     const from = document.getElementById('filter-from').value;
     const to = document.getElementById('filter-to').value;
-    const sector = document.getElementById('filter-sector').value;
+    const sectors = getSelectedHistorySectors();
     const risk = document.getElementById('filter-risk').value;
     const status = document.getElementById('filter-status').value;
 
     const params = [];
     if (from) params.push(`from=${encodeURIComponent(from)}`);
     if (to) params.push(`to=${encodeURIComponent(to + ' 23:59:59')}`);
-    if (sector && sector !== 'ALL') params.push(`sector=${encodeURIComponent(sector)}`);
+    if (sectors) params.push(`sectors=${encodeURIComponent(sectors)}`);
     if (risk) params.push(`risk=${encodeURIComponent(risk)}`);
     if (status) params.push(`status=${encodeURIComponent(status)}`);
     params.push(`page=${currentPage}`);
@@ -257,12 +338,12 @@ function buildDataUrl() {
 function buildSummaryUrl() {
     const from = document.getElementById('filter-from').value;
     const to = document.getElementById('filter-to').value;
-    const sector = document.getElementById('filter-sector').value;
+    const sectors = getSelectedHistorySectors();
 
     const params = [];
     if (from) params.push(`from=${encodeURIComponent(from)}`);
     if (to) params.push(`to=${encodeURIComponent(to + ' 23:59:59')}`);
-    if (sector && sector !== 'ALL') params.push(`sector=${encodeURIComponent(sector)}`);
+    if (sectors) params.push(`sectors=${encodeURIComponent(sectors)}`);
 
     return '/api/history/summary?' + params.join('&');
 }
@@ -286,6 +367,11 @@ function renderStats() {
     document.getElementById('stat-info').textContent = safeNum(SUMMARY_DATA.byRisk?.INFO_CNT);
     document.getElementById('stat-active').textContent = safeNum(SUMMARY_DATA.activeCount);
     document.getElementById('stat-cleared').textContent = safeNum(SUMMARY_DATA.clearedCount);
+
+    // 추천 건수 (별도 API에서 가져온 데이터)
+    if (RECOMMEND_SUMMARY) {
+        document.getElementById('stat-recommend').textContent = safeNum(RECOMMEND_SUMMARY.totalCount);
+    }
 }
 
 // ==================== 테이블 렌더링 ====================
@@ -351,6 +437,10 @@ function renderTable() {
     const totalCount = PAGINATION_META ? PAGINATION_META.totalCount : HISTORY_DATA.length;
     if (countEl) countEl.textContent = totalCount.toLocaleString();
 
+    // 탭 카운트 업데이트
+    const tabHistoryCount = document.getElementById('tab-count-history');
+    if (tabHistoryCount) tabHistoryCount.textContent = `(${totalCount.toLocaleString()})`;
+
     if (HISTORY_DATA.length === 0) {
         tbody.innerHTML = '<tr><td colspan="11" class="empty-state">검출 이력이 없습니다</td></tr>';
         return;
@@ -394,10 +484,14 @@ function renderTable() {
         // 경로 (FP1 출발→도착)
         const route = (d.FP1_DEPT && d.FP1_DEST) ? d.FP1_DEPT + '→' + d.FP1_DEST : '-';
 
-        // 보고 여부
-        const reportBadge = d.HAS_REPORT === 1
-            ? '<span style="color: var(--accent-secondary);">O</span>'
-            : '<span style="color: var(--text-muted);">-</span>';
+        // 보고 정보 (보고자 + 시간)
+        let reportBadge;
+        if (d.HAS_REPORT === 1 && d.REPORTER) {
+            const reportTime = d.REPORTED ? formatDateShort(d.REPORTED) : '';
+            reportBadge = `<span style="color: var(--accent-secondary); font-size: 11px;">${escapeHtml(d.REPORTER)}<br><span style="color: var(--text-muted); font-size: 10px;">${escapeHtml(reportTime)}</span></span>`;
+        } else {
+            reportBadge = '<span style="color: var(--text-muted);">-</span>';
+        }
 
         return `
             <tr class="${riskClass}" style="cursor: pointer;" data-index="${index}">
@@ -681,10 +775,15 @@ function showDetail(index) {
 
     const recommendation = getRecommendationHtml(d.SIMILARITY, scoreVal);
 
-    // 보고 여부
-    const reportDisplay = d.HAS_REPORT === 1
-        ? '<span style="color: var(--accent-secondary); font-weight: 600;">보고됨</span>'
-        : '<span style="color: var(--text-muted);">미보고</span>';
+    // 보고 정보
+    let reportDisplay;
+    if (d.HAS_REPORT === 1) {
+        const reporter = d.REPORTER ? escapeHtml(d.REPORTER) : '-';
+        const reportTime = d.REPORTED || '-';
+        reportDisplay = `<span style="color: var(--accent-secondary); font-weight: 600;">${reporter}</span> <span style="color: var(--text-muted); font-size: 12px;">(${escapeHtml(reportTime)})</span>`;
+    } else {
+        reportDisplay = '<span style="color: var(--text-muted);">미보고</span>';
+    }
 
     content.innerHTML = `
         <div style="display: grid; gap: 16px;">
@@ -749,7 +848,7 @@ function showDetail(index) {
                     <div class="detail-value" style="color: var(--accent-primary);">${escapeHtml(getSectorName(d.CCP))}</div>
                 </div>
                 <div class="detail-field">
-                    <div class="detail-label">보고 여부</div>
+                    <div class="detail-label">보고</div>
                     <div class="detail-value">${reportDisplay}</div>
                 </div>
             </div>
@@ -801,7 +900,15 @@ function closeDetailModal() {
 async function applyFilter() {
     await loadViewConfig();
     currentPage = 1;
-    await Promise.all([loadData(), loadSummary()]);
+    recommendPage = 1;
+    // 비활성 탭은 dirty 처리하여 탭 전환 시 재로드
+    if (activeTab === 'history') {
+        RECOMMEND_DATA = [];
+        await Promise.all([loadData(), loadSummary(), loadRecommendSummary()]);
+    } else {
+        HISTORY_DATA = [];
+        await Promise.all([loadRecommendData(), loadRecommendSummary(), loadSummary()]);
+    }
 }
 
 /**
@@ -814,12 +921,23 @@ async function applyFilter() {
 async function resetFilter() {
     await loadViewConfig();
     setDatePreset('today');
-    document.getElementById('filter-sector').value = 'ALL';
+    // 섹터 체크박스 인천섹터만 체크 (초기 상태로 복원)
+    document.querySelectorAll('.history-sector-cb').forEach(cb => {
+        cb.checked = INCHEON_SECTORS.includes(cb.value);
+    });
+    updateHistorySectorBtn();
     document.getElementById('filter-risk').value = '';
     document.getElementById('filter-status').value = '';
 
     currentPage = 1;
-    await Promise.all([loadData(), loadSummary()]);
+    recommendPage = 1;
+    RECOMMEND_DATA = [];
+    HISTORY_DATA = [];
+    if (activeTab === 'history') {
+        await Promise.all([loadData(), loadSummary(), loadRecommendSummary()]);
+    } else {
+        await Promise.all([loadRecommendData(), loadRecommendSummary(), loadSummary()]);
+    }
 }
 
 /**
@@ -919,7 +1037,13 @@ function downloadExcel() {
                 if (band === 'caution') return '주의관찰';
                 return '정상감시';
             })(),
-            '보고여부': d.HAS_REPORT === 1 ? 'O' : '-'
+            '보고여부': d.HAS_REPORT === 1 ? 'O' : '-',
+            '보고자': d.REPORTER || '',
+            '보고시간': d.REPORTED || '',
+            '오류항공기': d.HAS_REPORT === 1 ? ({1:'FP1', 2:'FP2', 3:'양쪽'}[d.AO] || '') : '',
+            '오류유형': d.HAS_REPORT === 1 ? (CONFIG_LABELS.errorTypes[String(d.REPORT_TYPE)] || '') : '',
+            '세부유형': d.HAS_REPORT === 1 ? (CONFIG_LABELS.errorDetailTypes[String(d.TYPE_DETAIL)] || '') : '',
+            '비고': d.REMARK || ''
         };
     });
 
@@ -948,7 +1072,13 @@ function downloadExcel() {
         { wch: 12 }, // 동시관제량
         { wch: 12 }, // 공존시간(분)
         { wch: 10 }, // 권고사항
-        { wch: 8  }  // 보고여부
+        { wch: 8  }, // 보고여부
+        { wch: 10 }, // 보고자
+        { wch: 20 }, // 보고시간
+        { wch: 10 }, // 오류항공기
+        { wch: 15 }, // 오류유형
+        { wch: 15 }, // 세부유형
+        { wch: 30 }  // 비고
     ];
 
     // 파일명: 유사호출부호_검출이력_YYYYMMDD.xlsx
@@ -984,6 +1114,623 @@ document.addEventListener('keydown', (e) => {
         closeDetailModal();
     }
 });
+
+// ==================== 탭 전환 ====================
+
+/**
+ * 탭 전환
+ * @param {'history'|'recommend'} tab
+ */
+function switchTab(tab) {
+    activeTab = tab;
+
+    // 탭 버튼 활성화
+    document.getElementById('tab-btn-history').classList.toggle('active', tab === 'history');
+    document.getElementById('tab-btn-recommend').classList.toggle('active', tab === 'recommend');
+
+    // 탭 패널 표시
+    document.getElementById('tab-history').style.display = tab === 'history' ? '' : 'none';
+    document.getElementById('tab-recommend').style.display = tab === 'recommend' ? '' : 'none';
+
+    // 탭 진입 시 데이터가 비었으면 재로드
+    if (tab === 'history' && HISTORY_DATA.length === 0) {
+        loadData();
+    }
+    if (tab === 'recommend') {
+        if (RECOMMEND_DATA.length === 0) loadRecommendData();
+        if (UNREGISTERED_PATTERNS.length === 0) loadUnregisteredPatterns();
+    }
+}
+
+// ==================== 누락 추천 데이터 ====================
+
+/**
+ * 추천 데이터 조회 URL 생성
+ */
+function buildRecommendUrl() {
+    const from = document.getElementById('filter-from').value;
+    const to = document.getElementById('filter-to').value;
+    const sectors = getSelectedHistorySectors();
+
+    const params = [];
+    if (from) params.push(`from=${encodeURIComponent(from)}`);
+    if (to) params.push(`to=${encodeURIComponent(to + ' 23:59:59')}`);
+    if (sectors) params.push(`sectors=${encodeURIComponent(sectors)}`);
+    params.push(`page=${recommendPage}`);
+    params.push(`pageSize=${PAGE_SIZE}`);
+
+    return '/api/history/recommendations?' + params.join('&');
+}
+
+/**
+ * 추천 요약 URL 생성
+ */
+function buildRecommendSummaryUrl() {
+    const from = document.getElementById('filter-from').value;
+    const to = document.getElementById('filter-to').value;
+    const sectors = getSelectedHistorySectors();
+
+    const params = [];
+    if (from) params.push(`from=${encodeURIComponent(from)}`);
+    if (to) params.push(`to=${encodeURIComponent(to + ' 23:59:59')}`);
+    if (sectors) params.push(`sectors=${encodeURIComponent(sectors)}`);
+
+    return '/api/history/recommendations/summary?' + params.join('&');
+}
+
+/**
+ * 추천 목록 데이터 로드
+ */
+async function loadRecommendData() {
+    try {
+        const url = buildRecommendUrl();
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result = await response.json();
+
+        if (result.success) {
+            RECOMMEND_DATA = result.data || [];
+            RECOMMEND_PAGINATION = result.pagination || null;
+            renderRecommendTable();
+            renderRecommendPagination();
+        }
+    } catch (err) {
+        console.error('누락 추천 로드 실패:', err);
+        const tbody = document.getElementById('recommend-tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="10" class="empty-state" style="color: var(--accent-danger);">데이터 로드 실패</td></tr>';
+        }
+    }
+}
+
+/**
+ * 추천 요약 통계 로드 (탭 카운트 표시용)
+ */
+async function loadRecommendSummary() {
+    try {
+        const url = buildRecommendSummaryUrl();
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result = await response.json();
+
+        if (result.success) {
+            RECOMMEND_SUMMARY = result.data;
+            const total = result.data.totalCount || 0;
+            const tabCount = document.getElementById('tab-count-recommend');
+            if (tabCount) tabCount.textContent = `(${total.toLocaleString()})`;
+            const statEl = document.getElementById('stat-recommend');
+            if (statEl) statEl.textContent = total.toLocaleString();
+        }
+    } catch (err) {
+        console.error('추천 요약 로드 실패:', err);
+    }
+}
+
+/**
+ * 일치 특성 요약 텍스트 생성
+ */
+function getMatchTraitsHtml(d) {
+    const traits = [];
+    if (d.AOD_MATCH === 1) traits.push('동일항공사');
+    if (d.FID_LEN_MATCH === 1) traits.push('동일길이');
+    traits.push(`일치${d.COMP_RAT || 0}%`);
+    if (d.MATCH_LEN >= 3) traits.push(`${d.MATCH_LEN}자리연속`);
+    return `<span style="font-size: 11px; color: var(--text-muted);">${traits.join(', ')}</span>`;
+}
+
+/**
+ * 위험도 추정 (서버 ESTIMATED_SIM 우선, fallback으로 COMP_RAT 기반)
+ */
+function estimateRiskTag(d) {
+    // 서버에서 계산된 ESTIMATED_SIM 우선 사용
+    const sim = d.ESTIMATED_SIM;
+    if (sim != null) {
+        if (sim >= 4) return { tag: '<span class="tag tag-danger">매우높음</span>', cls: 'high-risk' };
+        if (sim === 3) return { tag: '<span class="tag tag-warning">높음</span>', cls: 'med-risk' };
+        return { tag: '<span class="tag tag-info">보통</span>', cls: '' };
+    }
+    // fallback: 서버값 없으면 기존 로직
+    const comp = d.COMP_RAT || 0;
+    const len = d.MATCH_LEN || 0;
+    if (comp >= 50 || (comp >= 43 && len >= 3)) {
+        return { tag: '<span class="tag tag-danger">매우높음</span>', cls: 'high-risk' };
+    }
+    if (comp >= 33 && len >= 3) {
+        return { tag: '<span class="tag tag-warning">높음</span>', cls: 'med-risk' };
+    }
+    return { tag: '<span class="tag tag-info">보통</span>', cls: '' };
+}
+
+/**
+ * 예상 유사도 등급 태그 생성
+ * @param {number} sim - 유사도 등급 (0~4)
+ * @returns {string} HTML 태그
+ */
+function getExpectedSimTag(sim) {
+    if (sim >= 4) return '<span class="tag tag-danger">매우높음(4)</span>';
+    if (sim === 3) return '<span class="tag tag-warning">높음(3)</span>';
+    if (sim === 2) return '<span class="tag tag-info">낮음(2)</span>';
+    if (sim === 1) return '<span class="tag tag-info">매우낮음(1)</span>';
+    return '<span class="tag" style="background:rgba(100,100,100,0.3);">유사하지않음(0)</span>';
+}
+
+/**
+ * 추천 테이블 렌더링
+ */
+function renderRecommendTable() {
+    const tbody = document.getElementById('recommend-tbody');
+    const countEl = document.getElementById('recommend-count');
+
+    const totalCount = RECOMMEND_PAGINATION ? RECOMMEND_PAGINATION.totalCount : RECOMMEND_DATA.length;
+    if (countEl) countEl.textContent = totalCount.toLocaleString();
+
+    // 탭 카운트도 업데이트
+    const tabHistoryCount = document.getElementById('tab-count-history');
+    if (tabHistoryCount && PAGINATION_META) {
+        tabHistoryCount.textContent = `(${PAGINATION_META.totalCount.toLocaleString()})`;
+    }
+
+    if (RECOMMEND_DATA.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" class="empty-state">해당 기간에 기준 미등록 항목이 없습니다</td></tr>';
+        return;
+    }
+
+    const rows = RECOMMEND_DATA.map((d, index) => {
+        const isActive = d.CLEARED === '9999-12-31 23:59:59';
+        const detectedStr = formatDateShort(d.DETECTED);
+        const clearedStr = isActive
+            ? '<span style="color: var(--accent-secondary); font-size: 11px;">활성</span>'
+            : formatDateShort(d.CLEARED);
+
+        const airline1 = getAirlineName(d.FP1_CALLSIGN);
+        const airline2 = getAirlineName(d.FP2_CALLSIGN);
+        const airlineText = airline1 === airline2 ? airline1 : airline1 + ' / ' + airline2;
+
+        const ctrlPeak = d.CTRL_PEAK != null ? d.CTRL_PEAK : '-';
+
+        let coexistMin = '-';
+        if (!isActive && d.DETECTED && d.CLEARED) {
+            const dt = new Date(d.DETECTED.replace(' ', 'T'));
+            const ct = new Date(d.CLEARED.replace(' ', 'T'));
+            if (!isNaN(dt) && !isNaN(ct)) coexistMin = Math.round((ct - dt) / 60000);
+        }
+
+        const route = (d.FP1_DEPT && d.FP1_DEST) ? d.FP1_DEPT + '\u2192' + d.FP1_DEST : '-';
+
+        const risk = estimateRiskTag(d);
+        const matchTraits = getMatchTraitsHtml(d);
+
+        return `
+            <tr class="${risk.cls}" style="cursor: pointer;" data-recommend-index="${index}">
+                <td style="font-size: 12px; white-space: nowrap;">${detectedStr}</td>
+                <td style="font-size: 12px; white-space: nowrap;">${clearedStr}</td>
+                <td style="color: var(--accent-primary);">${escapeHtml(getSectorName(d.CCP))}</td>
+                <td>
+                    <div class="callsign-box">
+                        <span class="callsign-main">${escapeHtml(d.FP1_CALLSIGN) || '-'}</span>
+                        <span class="vs">vs</span>
+                        <span class="callsign-main">${escapeHtml(d.FP2_CALLSIGN) || '-'}</span>
+                    </div>
+                </td>
+                <td style="font-size: 12px;">${escapeHtml(airlineText)}</td>
+                <td>${risk.tag}</td>
+                <td style="text-align: center;">${ctrlPeak}</td>
+                <td style="text-align: center;">${coexistMin}${coexistMin !== '-' ? '분' : ''}</td>
+                <td style="font-size: 11px; white-space: nowrap;">${escapeHtml(route)}</td>
+                <td>${matchTraits}</td>
+            </tr>
+        `;
+    }).join('');
+
+    tbody.innerHTML = rows;
+}
+
+/**
+ * 추천 페이지네이션 렌더링
+ */
+function renderRecommendPagination() {
+    const container = document.getElementById('recommend-pagination');
+    if (!container) return;
+
+    if (!RECOMMEND_PAGINATION || RECOMMEND_PAGINATION.totalPages <= 1) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const { page, totalPages, totalCount } = RECOMMEND_PAGINATION;
+    const parts = [];
+
+    parts.push(`<button class="btn btn-ghost btn-sm" onclick="goToRecommendPage(${page - 1})" ${page === 1 ? 'disabled' : ''}>&laquo; 이전</button>`);
+
+    const pageButtons = buildPageButtons(page, totalPages);
+    // 추천 탭용 페이지 버튼은 goToRecommendPage 사용
+    const adjustedButtons = pageButtons.map(b => b.replace(/goToPage\(/g, 'goToRecommendPage('));
+    parts.push(...adjustedButtons);
+
+    parts.push(`<button class="btn btn-ghost btn-sm" onclick="goToRecommendPage(${page + 1})" ${page === totalPages ? 'disabled' : ''}>다음 &raquo;</button>`);
+    parts.push(`<span style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">${page.toLocaleString()} / ${totalPages.toLocaleString()} 페이지 &nbsp;(전체 ${totalCount.toLocaleString()}건)</span>`);
+
+    container.innerHTML = parts.join('');
+}
+
+/**
+ * 추천 페이지 이동
+ */
+function goToRecommendPage(page) {
+    if (!RECOMMEND_PAGINATION) return;
+    if (page < 1 || page > RECOMMEND_PAGINATION.totalPages) return;
+    if (page === recommendPage) return;
+
+    recommendPage = page;
+    loadRecommendData();
+
+    const tableEl = document.getElementById('recommend-table');
+    if (tableEl) tableEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/**
+ * 추천 상세 보기 (행 클릭)
+ */
+function showRecommendDetail(index) {
+    const d = RECOMMEND_DATA[index];
+    if (!d) return;
+
+    const content = document.getElementById('detail-content');
+    if (!content) return;
+
+    const isActive = d.CLEARED === '9999-12-31 23:59:59';
+    const clearedDisplay = isActive
+        ? '<span style="color: var(--accent-secondary); font-weight: 600;">활성 (미해제)</span>'
+        : escapeHtml(d.CLEARED || '-');
+
+    const risk = estimateRiskTag(d);
+
+    content.innerHTML = `
+        <div style="display: grid; gap: 16px;">
+            <!-- 미등록 안내 배너 -->
+            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--accent-danger);">
+                이 호출부호 쌍의 패턴이 기준 테이블(T_SIMILAR_CALLSIGN_CRITERIA)에<br>
+                <strong>등록되어 있지 않아</strong> 유사도가 산출되지 않았습니다 (SIMILARITY = -1).
+            </div>
+
+            <!-- FP1 vs FP2 -->
+            <div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: stretch;">
+                <div style="background: rgba(15,23,42,0.5); padding: 15px; border-radius: 10px; text-align: center; border: 1px solid rgba(14,165,233,0.2);">
+                    <div style="font-size: 10px; color: var(--accent-primary); margin-bottom: 6px; font-weight: 600; letter-spacing: 1px;">FP1</div>
+                    <div style="font-size: 22px; font-weight: 700; color: #fff; font-family: var(--font-mono); margin-bottom: 10px;">${escapeHtml(d.FP1_CALLSIGN) || '-'}</div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">
+                        <span style="color: var(--accent-secondary);">${escapeHtml(d.FP1_DEPT) || '-'}</span>
+                        <span style="margin: 0 4px;">&#8594;</span>
+                        <span style="color: var(--accent-warning);">${escapeHtml(d.FP1_DEST) || '-'}</span>
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-muted);">EOBT: <span style="color: var(--text-main);">${escapeHtml(d.FP1_EOBT) || '-'}</span></div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">고도: <span style="color: var(--text-main);">${escapeHtml(String(d.FP1_ALT || '-'))}</span></div>
+                </div>
+                <div style="display: flex; align-items: center; color: var(--text-muted); font-size: 11px; font-weight: 600; padding: 0 4px;">vs</div>
+                <div style="background: rgba(15,23,42,0.5); padding: 15px; border-radius: 10px; text-align: center; border: 1px solid rgba(14,165,233,0.2);">
+                    <div style="font-size: 10px; color: var(--accent-primary); margin-bottom: 6px; font-weight: 600; letter-spacing: 1px;">FP2</div>
+                    <div style="font-size: 22px; font-weight: 700; color: #fff; font-family: var(--font-mono); margin-bottom: 10px;">${escapeHtml(d.FP2_CALLSIGN) || '-'}</div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">
+                        <span style="color: var(--accent-secondary);">${escapeHtml(d.FP2_DEPT) || '-'}</span>
+                        <span style="margin: 0 4px;">&#8594;</span>
+                        <span style="color: var(--accent-warning);">${escapeHtml(d.FP2_DEST) || '-'}</span>
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-muted);">EOBT: <span style="color: var(--text-main);">${escapeHtml(d.FP2_EOBT) || '-'}</span></div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">고도: <span style="color: var(--text-main);">${escapeHtml(String(d.FP2_ALT || '-'))}</span></div>
+                </div>
+            </div>
+
+            <!-- 검출/해제 시각 -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="detail-field">
+                    <div class="detail-label">검출시각</div>
+                    <div class="detail-value">${escapeHtml(d.DETECTED) || '-'}</div>
+                </div>
+                <div class="detail-field">
+                    <div class="detail-label">해제시각</div>
+                    <div class="detail-value">${clearedDisplay}</div>
+                </div>
+                <div class="detail-field">
+                    <div class="detail-label">섹터</div>
+                    <div class="detail-value" style="color: var(--accent-primary);">${escapeHtml(getSectorName(d.CCP))}</div>
+                </div>
+                <div class="detail-field">
+                    <div class="detail-label">동시관제량</div>
+                    <div class="detail-value">${d.CTRL_PEAK != null ? d.CTRL_PEAK : '-'}</div>
+                </div>
+            </div>
+
+            <!-- 미등록 패턴 특성 -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="detail-field">
+                    <div class="detail-label">추정 위험도</div>
+                    <div class="detail-value">${risk.tag} <span style="color: var(--text-muted); font-size: 12px; margin-left: 6px;">(기준 미등록)</span></div>
+                </div>
+                <div class="detail-field">
+                    <div class="detail-label">문자 일치율 (COMP_RAT)</div>
+                    <div class="detail-value">${d.COMP_RAT || 0}%</div>
+                </div>
+                <div class="detail-field">
+                    <div class="detail-label">일치 특성</div>
+                    <div class="detail-value">${getMatchTraitsHtml(d)}</div>
+                </div>
+                <div class="detail-field">
+                    <div class="detail-label">미등록 패턴</div>
+                    <div class="detail-value" style="font-family: var(--font-mono); font-size: 11px;">
+                        AOD=${d.AOD_MATCH} FID=${d.FID_LEN_MATCH} POS=${d.MATCH_POS} LEN=${d.MATCH_LEN} COMP=${d.COMP_RAT}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.getElementById('detail-modal').classList.add('active');
+}
+
+/**
+ * 추천 테이블 행 클릭 이벤트 등록
+ */
+document.addEventListener('click', function(e) {
+    const tr = e.target.closest('tr[data-recommend-index]');
+    if (!tr) return;
+    showRecommendDetail(parseInt(tr.dataset.recommendIndex, 10));
+});
+
+/**
+ * 추천 데이터 Excel 내보내기
+ */
+function downloadRecommendExcel() {
+    if (typeof XLSX === 'undefined') {
+        alert('Excel 내보내기 라이브러리를 불러올 수 없습니다.');
+        return;
+    }
+    if (!RECOMMEND_DATA || RECOMMEND_DATA.length === 0) {
+        alert('다운로드할 데이터가 없습니다.');
+        return;
+    }
+
+    const totalCount = RECOMMEND_PAGINATION ? RECOMMEND_PAGINATION.totalCount : RECOMMEND_DATA.length;
+    if (totalCount > RECOMMEND_DATA.length) {
+        if (!confirm(`현재 페이지의 ${RECOMMEND_DATA.length}건만 저장됩니다. (전체 ${totalCount.toLocaleString()}건)\n계속하시겠습니까?`)) {
+            return;
+        }
+    }
+
+    const excelData = RECOMMEND_DATA.map(d => {
+        const isActive = d.CLEARED === '9999-12-31 23:59:59';
+        let coexistMin = '';
+        if (!isActive && d.DETECTED && d.CLEARED) {
+            const dt = new Date(d.DETECTED.replace(' ', 'T'));
+            const ct = new Date(d.CLEARED.replace(' ', 'T'));
+            if (!isNaN(dt) && !isNaN(ct)) coexistMin = Math.round((ct - dt) / 60000);
+        }
+        return {
+            '검출시각': d.DETECTED || '',
+            '해제시각': isActive ? '활성' : (d.CLEARED || ''),
+            '섹터': getSectorName(d.CCP),
+            '호출부호1': d.FP1_CALLSIGN || '',
+            '호출부호2': d.FP2_CALLSIGN || '',
+            '항공사': (() => {
+                const a1 = getAirlineName(d.FP1_CALLSIGN);
+                const a2 = getAirlineName(d.FP2_CALLSIGN);
+                return a1 === a2 ? a1 : a1 + ' / ' + a2;
+            })(),
+            'SIMILARITY': d.SIMILARITY,
+            'SCORE_PEAK': d.SCORE_PEAK || 0,
+            '동시관제량': d.CTRL_PEAK != null ? d.CTRL_PEAK : '',
+            '공존시간(분)': coexistMin,
+            'AOD_MATCH': d.AOD_MATCH,
+            'FID_LEN_MATCH': d.FID_LEN_MATCH,
+            'MATCH_LEN': d.MATCH_LEN,
+            'COMP_RAT': d.COMP_RAT,
+            'FP1 출발': d.FP1_DEPT || '',
+            'FP1 도착': d.FP1_DEST || '',
+            'FP2 출발': d.FP2_DEPT || '',
+            'FP2 도착': d.FP2_DEST || ''
+        };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '누락추천');
+
+    const now = new Date();
+    const dateSuffix = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    XLSX.writeFile(wb, `유사호출부호_누락추천_${dateSuffix}.xlsx`);
+}
+
+// ==================== 미등록 패턴 조회 및 등록 ====================
+
+/** 미등록 패턴 목록 (서버에서 동적 조회) */
+let UNREGISTERED_PATTERNS = [];
+
+/**
+ * 미등록 패턴 목록을 서버에서 조회하여 패턴 등록 패널에 렌더링
+ */
+async function loadUnregisteredPatterns() {
+    try {
+        const from = document.getElementById('filter-from').value;
+        const to = document.getElementById('filter-to').value;
+        const sectors = getSelectedHistorySectors();
+
+        const params = [];
+        if (from) params.push(`from=${encodeURIComponent(from)}`);
+        if (to) params.push(`to=${encodeURIComponent(to + ' 23:59:59')}`);
+        if (sectors) params.push(`sectors=${encodeURIComponent(sectors)}`);
+
+        const response = await fetch('/api/history/recommendations/unregistered?' + params.join('&'));
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result = await response.json();
+
+        if (result.success) {
+            UNREGISTERED_PATTERNS = result.data.unregistered || [];
+            renderUnregisteredPatterns();
+        }
+    } catch (err) {
+        console.error('미등록 패턴 조회 실패:', err);
+    }
+}
+
+/**
+ * MATCH_POSITION 코드를 사람이 읽을 수 있는 이름으로 변환
+ */
+function getMatchPosName(pos) {
+    const names = { 0: '전체', 1: '앞뒤', 2: '앞', 3: '뒤', 4: '가운데' };
+    return names[pos] || String(pos);
+}
+
+/**
+ * 미등록 패턴 테이블 렌더링
+ */
+function renderUnregisteredPatterns() {
+    const container = document.getElementById('unregistered-patterns');
+    if (!container) return;
+
+    if (UNREGISTERED_PATTERNS.length === 0) {
+        container.innerHTML = '<div style="text-align: center; color: var(--accent-secondary); padding: 20px; font-size: 13px;">모든 패턴이 기준 테이블에 등록되어 있습니다.</div>';
+        return;
+    }
+
+    let html = `
+        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">${UNREGISTERED_PATTERNS.length}개 미등록 패턴 / 총 ${UNREGISTERED_PATTERNS.reduce((s, p) => s + p.PAIR_COUNT, 0).toLocaleString()}건 영향</div>
+        <table style="width: 100%; font-size: 12px;">
+            <thead>
+                <tr>
+                    <th>AOD</th>
+                    <th>FID길이</th>
+                    <th>매치위치</th>
+                    <th>매치길이</th>
+                    <th>일치율</th>
+                    <th>검출 건수</th>
+                    <th>호출부호 예시</th>
+                    <th>등록 유사도</th>
+                    <th>등록</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    UNREGISTERED_PATTERNS.forEach((p, i) => {
+        const risk = (p.COMP_RAT >= 50 || (p.COMP_RAT >= 43 && p.MATCH_LEN >= 3)) ? 'high-risk'
+            : (p.COMP_RAT >= 33 && p.MATCH_LEN >= 3) ? 'med-risk' : '';
+        const sample = (p.SAMPLE_FP1 && p.SAMPLE_FP2)
+            ? `<span style="font-family: var(--font-mono); font-size: 11px;">${escapeHtml(p.SAMPLE_FP1)} vs ${escapeHtml(p.SAMPLE_FP2)}</span>`
+            : '-';
+        html += `
+            <tr class="${risk}">
+                <td style="text-align: center;">${p.AOD_MATCH === 1 ? 'O' : '-'}</td>
+                <td style="text-align: center;">${p.FID_LEN_MATCH === 1 ? 'O' : '-'}</td>
+                <td style="text-align: center;">${getMatchPosName(p.MATCH_POS)}</td>
+                <td style="text-align: center;">${p.MATCH_LEN}</td>
+                <td style="text-align: center;">${p.COMP_RAT}%</td>
+                <td style="text-align: center; font-weight: 600;">${p.PAIR_COUNT.toLocaleString()}건</td>
+                <td>${sample}</td>
+                <td style="text-align: center;">
+                    <select id="sim-select-${i}" style="background: rgba(15,23,42,0.8); color: #fff; border: 1px solid var(--glass-border); border-radius: 4px; padding: 2px 6px; font-size: 12px;">
+                        <option value="4" ${p.ESTIMATED_SIM === 4 ? 'selected' : ''}>4 (매우높음)</option>
+                        <option value="3" ${p.ESTIMATED_SIM === 3 ? 'selected' : ''}>3 (높음)</option>
+                        <option value="2" ${p.ESTIMATED_SIM === 2 ? 'selected' : ''}>2 (낮음)</option>
+                        <option value="1" ${p.ESTIMATED_SIM === 1 ? 'selected' : ''}>1 (매우낮음)</option>
+                        <option value="0" ${p.ESTIMATED_SIM === 0 ? 'selected' : ''}>0 (유사하지않음)</option>
+                    </select>
+                </td>
+                <td style="text-align: center;">
+                    <button class="btn btn-primary btn-sm" onclick="registerPattern(${i})" style="padding: 2px 10px; font-size: 11px;">등록</button>
+                </td>
+            </tr>
+        `;
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+/**
+ * 개별 패턴을 기준 테이블에 등록
+ */
+async function registerPattern(index) {
+    const p = UNREGISTERED_PATTERNS[index];
+    if (!p) return;
+
+    const selectEl = document.getElementById(`sim-select-${index}`);
+    const simValue = selectEl ? selectEl.value : '';
+
+    if (simValue === '') {
+        alert('유사도 등급을 선택해주세요.');
+        return;
+    }
+
+    const example = (p.SAMPLE_FP1 && p.SAMPLE_FP2)
+        ? `${p.SAMPLE_FP1} | ${p.SAMPLE_FP2}` : '';
+
+    const item = {
+        AOD_MATCH: p.AOD_MATCH,
+        FID_LEN_MATCH: p.FID_LEN_MATCH,
+        MATCH_POS: p.MATCH_POS,
+        MATCH_LEN: p.MATCH_LEN,
+        COMP_RAT: p.COMP_RAT,
+        SIMILARITY: Number(simValue),
+        EXAMPLE: example
+    };
+
+    const msg = `이 패턴을 기준 테이블에 등록하시겠습니까?\n\n` +
+        `예시: ${example}\n` +
+        `AOD: ${item.AOD_MATCH === 1 ? '일치' : '불일치'}, ` +
+        `FID길이: ${item.FID_LEN_MATCH === 1 ? '일치' : '불일치'}, ` +
+        `위치: ${getMatchPosName(item.MATCH_POS)}, ` +
+        `길이: ${item.MATCH_LEN}, ` +
+        `일치율: ${item.COMP_RAT}%\n` +
+        `→ 유사도: ${item.SIMILARITY}\n\n` +
+        `해당 패턴 ${p.PAIR_COUNT.toLocaleString()}건에 영향`;
+
+    if (!confirm(msg)) return;
+
+    try {
+        const response = await fetch('/api/history/recommendations/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: [item] })
+        });
+
+        const result = await response.json();
+        if (result.success && result.data.inserted > 0) {
+            alert(`등록 완료!\n\n향후 동일 패턴의 신규 검출 건부터 유사도가 정상 산출됩니다.\n(기존 ${p.PAIR_COUNT.toLocaleString()}건은 소급 적용되지 않음)`);
+            // 등록 후 새로고침
+            await Promise.all([
+                loadUnregisteredPatterns(),
+                loadRecommendData(),
+                loadRecommendSummary()
+            ]);
+        } else if (result.success) {
+            alert('이미 등록된 패턴입니다.');
+        } else {
+            alert('등록 실패: ' + (result.error || '알 수 없는 오류'));
+        }
+    } catch (err) {
+        console.error('기준 등록 실패:', err);
+        alert('서버 연결 오류');
+    }
+}
 
 // ==================== 페이지 로드 시 초기화 ====================
 

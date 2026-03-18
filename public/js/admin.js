@@ -109,6 +109,12 @@ async function loadReports() {
     if (detail) params.push(`typeDetail=${encodeURIComponent(detail)}`);
     if (reported) params.push(`reported=${encodeURIComponent(reported)}`);
 
+    // 선택된 섹터 필터
+    const selectedSectors = getSelectedSectors();
+    if (selectedSectors.length > 0) {
+        params.push(`sectors=${encodeURIComponent(selectedSectors.join(','))}`);
+    }
+
     url += params.join('&');
 
     try {
@@ -122,6 +128,9 @@ async function loadReports() {
             REPORTS_DATA = result.data;
             renderReports();
             updateNetworkStatus(true);
+            if (result.truncated) {
+                alert('조회 결과가 10,000건을 초과합니다. 날짜 또는 섹터 필터를 좁혀주세요.');
+            }
         } else {
             throw new Error(result.error);
         }
@@ -200,12 +209,15 @@ function loadSectors() {
     if (!list) return;
     list.innerHTML = '';
 
-    FIXED_SECTORS.forEach(ccp => {
-        const checked = DISPLAY_SECTORS.length === 0 || DISPLAY_SECTORS.includes(String(ccp));
+    // 전체 섹터 (FIXED_SECTORS + SECTOR_MAP의 나머지)
+    const allCodes = [...new Set([...FIXED_SECTORS, ...Object.keys(SECTOR_MAP)])];
+
+    allCodes.forEach(ccp => {
+        const isIncheon = INCHEON_SECTORS.includes(ccp);
         list.innerHTML += `
             <label style="display:flex;align-items:center;gap:6px;padding:5px 8px;cursor:pointer;font-size:13px;color:#e2e8f0;border-radius:4px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background=''">
-                <input type="checkbox" class="sector-filter-check" value="${ccp}" ${checked ? 'checked' : ''} onchange="updateSectorLabel();filterTableBySector()">
-                <span>${getSectorName(ccp)}</span>
+                <input type="checkbox" class="sector-filter-check" value="${ccp}" ${isIncheon ? 'checked' : ''} onchange="updateSectorLabel()">
+                <span>${escapeHtml(getSectorName(ccp))}</span>
             </label>`;
     });
     updateSectorLabel();
@@ -317,8 +329,8 @@ function renderReports() {
                 <td><span class="tag ${simTag}">${simText}</span></td>
                 <td><span class="tag ${recTag}">${recText}</span></td>
                 <td>${reportTag}</td>
-                <td>${hasReport ? '<span class="tag ' + typeClass + '">' + (TYPE_MAP[r.TYPE] || '-') + '</span>' : '<span style="color:var(--text-muted);">-</span>'}</td>
-                <td>${hasReport ? '<span class="tag tag-info">' + (IMPACT_MAP[r.TYPE_DETAIL] || '-') + '</span>' : '<span style="color:var(--text-muted);">-</span>'}</td>
+                <td>${hasReport ? '<span class="tag ' + typeClass + '">' + escapeHtml(TYPE_MAP[r.TYPE] || '-') + '</span>' : '<span style="color:var(--text-muted);">-</span>'}</td>
+                <td>${hasReport ? '<span class="tag tag-info">' + escapeHtml(IMPACT_MAP[r.TYPE_DETAIL] || '-') + '</span>' : '<span style="color:var(--text-muted);">-</span>'}</td>
             </tr>
         `;
     }).join('');
@@ -393,7 +405,7 @@ function setDatePreset(period) {
     document.getElementById('filter-to').value = toStr;
 }
 
-// 선택 삭제 (병렬 처리 + 개별 에러 핸들링)
+// 선택 삭제 (일괄 삭제 API 사용)
 async function deleteSelected() {
     const checked = Array.from(document.querySelectorAll('.report-check:checked'));
 
@@ -407,35 +419,23 @@ async function deleteSelected() {
     }
 
     try {
-        // 병렬 삭제 요청 생성
-        const deletePromises = checked.map(async (cb) => {
-            const idx = cb.dataset.idx;
-            const reported = encodeURIComponent(cb.dataset.reported);
+        const items = checked.map(cb => ({
+            idx: cb.dataset.idx,
+            reported: cb.dataset.reported
+        }));
 
-            const response = await fetch(`/api/admin/reports/${idx}/${reported}`, {
-                method: 'DELETE'
-            });
-
-            if (!response.ok) {
-                throw new Error(`IDX ${idx} 삭제 실패 (HTTP ${response.status})`);
-            }
-
-            return idx;
+        const response = await fetch('/api/admin/reports/batch-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items })
         });
 
-        // 모든 요청 병렬 실행 (실패해도 나머지 계속)
-        const results = await Promise.allSettled(deletePromises);
-
-        // 성공/실패 건수 집계
-        const succeeded = results.filter(r => r.status === 'fulfilled').length;
-        const failed = results.filter(r => r.status === 'rejected');
-
-        if (failed.length > 0) {
-            console.error('삭제 실패 항목:', failed.map(f => f.reason.message));
-            alert(`${succeeded}건 삭제 완료, ${failed.length}건 실패`);
-        } else {
-            alert(`${succeeded}건 삭제 완료`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
         }
+
+        const result = await response.json();
+        alert(result.message);
 
         loadReports();
         loadStats();
@@ -445,14 +445,13 @@ async function deleteSelected() {
     }
 }
 
-// 편명유사도 등급 변환 (SIMILARITY 숫자 → 텍스트)
+// 편명유사도 등급 변환 (common.js의 동적 설정 기반)
 function getSimilarityGrade(val) {
     if (val == null || val === '') return '정의되지 않음';
-    const n = Number(val);
-    if (n >= 3) return '매우높음';
-    if (n >= 1) return '높음';
-    if (n >= 0.5) return '낮음';
-    return '매우낮음';
+    const band = getSimilarityBand(val);
+    if (band === 'critical') return '매우높음';
+    if (band === 'caution') return '높음';
+    return '낮음';
 }
 
 // 오류발생가능성 등급 변환 (SCORE_PEAK 기준, 동적 설정)
@@ -466,14 +465,12 @@ function getScoreGrade(val) {
     return '매우낮음';
 }
 
-// 관제사권고사항 (SCORE_PEAK 단독 기준, 동적 설정)
+// 관제사권고사항 (common.js의 동적 설정 기반, SIMILARITY+SCORE_PEAK 종합 판정)
 function getRecommendation(similarity, scorePeak) {
-    const score = Number(scorePeak) || 0;
-    const r = EXCEL_GRADES.recommendation;
-    if (score >= r.immediate) return '즉시조치';
-    if (score >= r.caution) return '주의감시';
-    if (score > 0) return '일반감시';
-    return '';
+    const band = getRecommendationBand(similarity, scorePeak);
+    if (band === 'critical') return '즉시조치';
+    if (band === 'caution') return '주의감시';
+    return '일반감시';
 }
 
 // 검출 목록 섹터 필터 (테이블만 필터링, API 재호출 없음)
@@ -556,6 +553,69 @@ function matchPosToText(val) {
 }
 
 // Excel 다운로드 (전체 호출부호 데이터, 샘플 형식)
+/**
+ * 현재 화면에 표시된 목록을 간략 Excel로 저장
+ */
+function downloadListExcel() {
+    if (typeof XLSX === 'undefined') {
+        alert('Excel 내보내기 라이브러리를 불러올 수 없습니다.');
+        return;
+    }
+
+    // 섹터 체크박스 필터 적용
+    const selectedSectors = getSelectedSectors();
+    let rows = FILTERED_REPORTS;
+    if (selectedSectors.length > 0) {
+        rows = rows.filter(r => selectedSectors.includes(r.CCP));
+    }
+
+    if (!rows || rows.length === 0) {
+        alert('다운로드할 데이터가 없습니다.');
+        return;
+    }
+
+    const excelData = rows.map(r => {
+        const hasReport = r.REPORTED ? true : false;
+        const simBand = getSimilarityBand(r.SIMILARITY);
+        const simText = simBand === 'critical' ? '매우높음' : simBand === 'caution' ? '높음' : '보통';
+        const recBand = getRecommendationBand(r.SIMILARITY, r.SCORE_PEAK);
+        const recText = recBand === 'critical' ? '즉시조치' : recBand === 'caution' ? '주의관찰' : '정상감시';
+
+        return {
+            '검출시각': r.DETECTED || '',
+            '해제시각': r.CLEARED || '',
+            '섹터': getSectorName(r.CCP),
+            '호출부호1': r.FP1_CALLSIGN || '',
+            '호출부호2': r.FP2_CALLSIGN || '',
+            '유사도': simText,
+            '권고사항': recText,
+            '보고여부': hasReport ? 'O' : '-',
+            '보고일시': r.REPORTED || '',
+            '보고자': r.REPORTER || '',
+            '오류항공기': hasReport ? (AO_MAP[r.AO] || '') : '',
+            '오류유형': hasReport ? (TYPE_MAP[r.TYPE] || '') : '',
+            '세부오류유형': hasReport ? (IMPACT_MAP[r.TYPE_DETAIL] || '') : '',
+            '비고': r.REMARK || ''
+        };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '검출목록');
+
+    ws['!cols'] = [
+        { wch: 20 }, { wch: 20 }, { wch: 10 },
+        { wch: 12 }, { wch: 12 }, { wch: 10 },
+        { wch: 10 }, { wch: 8 }, { wch: 20 },
+        { wch: 10 }, { wch: 10 }, { wch: 15 },
+        { wch: 15 }, { wch: 30 }
+    ];
+
+    const now = new Date();
+    const filename = `유사호출부호_검출목록_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.xlsx`;
+    XLSX.writeFile(wb, filename);
+}
+
 async function downloadExcel() {
     if (typeof XLSX === 'undefined') {
         alert('Excel 내보내기 라이브러리를 불러올 수 없습니다.');
@@ -742,11 +802,8 @@ async function init() {
         });
 
         setDatePreset('today');
-        await loadErrorDetailTypes();
-        await loadSectors();
-        await loadReports();
-        await loadStats();
-        await loadCallsignStats(); // 호출부호 데이터 통계 로드
+        await Promise.all([loadErrorDetailTypes(), loadSectors()]);
+        await Promise.all([loadReports(), loadStats(), loadCallsignStats()]);
 
         // 사이드바 데이터 로드 (병렬)
         loadHourlyStats();
@@ -841,7 +898,7 @@ async function loadSettings() {
             container.innerHTML = FIXED_SECTORS.map(ccp => `
                 <label style="display:flex;align-items:center;gap:5px;padding:8px 12px;background:rgba(30,41,59,0.5);border-radius:6px;cursor:pointer;">
                     <input type="checkbox" class="sector-checkbox" value="${ccp}" ${selectedSectors.includes(String(ccp)) ? 'checked' : ''}>
-                    <span>${getSectorName(ccp)}</span>
+                    <span>${escapeHtml(getSectorName(ccp))}</span>
                 </label>`).join('');
         }
 
@@ -1197,7 +1254,7 @@ function downloadShortcut(pagePath) {
     a.href = URL.createObjectURL(blob);
     a.download = filename;
     a.click();
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 // ==================== 보고서 상세 보기 ====================
@@ -1339,7 +1396,7 @@ function renderSectorChart(bySector, total) {
         const ratio = total > 0 ? ((s.CNT / total) * 100).toFixed(1) : 0;
         return `
             <div class="h-bar-row">
-                <div class="h-bar-label">${getSectorName(s.CCP)}</div>
+                <div class="h-bar-label">${escapeHtml(getSectorName(s.CCP))}</div>
                 <div class="h-bar-track">
                     <div class="h-bar-fill sector" style="width: ${pct}%;">
                         ${pct > 15 ? `<span class="h-bar-value">${ratio}%</span>` : ''}
@@ -1543,7 +1600,7 @@ function renderTodaySectorList(bySector) {
         const cnt = sectorMap[ccp] || 0;
         const hasData = cnt > 0;
         return `<div class="sector-summary-row ${hasData ? 'has-data' : ''}">
-            <span class="sector-summary-name">${getSectorName(ccp)}</span>
+            <span class="sector-summary-name">${escapeHtml(getSectorName(ccp))}</span>
             <span class="sector-summary-cnt">${cnt}</span>
         </div>`;
     }).join('');

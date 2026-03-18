@@ -5,7 +5,16 @@
       "Bash(curl -s http://localhost:4000/api/config)",
       "Bash(node --version)",
       "Bash(where node)",
-      "Bash(curl -s \"http://localhost:4000/api/callsigns?sectors=3,2,10,9,11,13,12\")"
+      "Bash(curl -s \"http://localhost:4000/api/callsigns?sectors=3,2,10,9,11,13,12\")",
+      "Bash(wmic process:*)",
+      "Bash(taskkill //F //PID 42092)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(curl -s \"http://localhost:4000/api/history/recommendations?from=2026-03-01&to=2026-03-17%2023:59:59&page=1&pageSize=3\")",
+      "Bash(node -c \"c:/Users/Administrator/Desktop/similar_dashboard/routes/history.js\")",
+      "Bash(node -c \"c:/Users/Administrator/Desktop/similar_dashboard/public/js/history.js\")",
+      "Bash(curl -s \"http://localhost:4000/api/history/recommendations/summary?from=2026-03-01&to=2026-03-17%2023:59:59\")",
+      "Bash(curl -s \"http://localhost:4000/api/history/recommendations?from=2026-03-05&to=2026-03-06%2023:59:59&page=1&pageSize=2\")",
+      "Bash(curl -s \"http://localhost:4000/api/callsigns\")"
     ]
   }
 }

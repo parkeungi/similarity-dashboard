@@ -6,7 +6,8 @@ let currentSector = localStorage.getItem('selectedSector') || 'ALL';
 let refreshInterval = null;
 let currentRefreshRate = 10000; // 현재 적용된 갱신 주기 (interval 재생성 판단용)
 let editingReport = null; // 수정 모드 시 기존 보고서 정보 { idx, originalReported }
-let PREDICTION_DATA = []; // 예측 데이터
+let PREDICTION_DATA_ALL = []; // 예측 데이터 (원본)
+let PREDICTION_DATA = []; // 예측 데이터 (필터 적용)
 let PREDICTION_META = null; // 예측 메타 정보 (시간대, 요일 등)
 let predictionIntervalMinute = null;  // 1분 주기 (시간 변경 감지)
 let predictionIntervalFull = null;    // 5분 주기 (전체 갱신)
@@ -366,11 +367,13 @@ async function loadPredictions() {
         if (!response.ok) return;
         const result = await response.json();
         if (result.success) {
-            PREDICTION_DATA = result.data || [];
+            PREDICTION_DATA_ALL = result.data || [];
             PREDICTION_META = result.meta || null;
             // 현재 섹터 필터 적용
             if (currentSector !== 'ALL') {
-                PREDICTION_DATA = PREDICTION_DATA.filter(d => String(d.CCP) === currentSector);
+                PREDICTION_DATA = PREDICTION_DATA_ALL.filter(d => String(d.CCP) === currentSector);
+            } else {
+                PREDICTION_DATA = PREDICTION_DATA_ALL;
             }
             renderTable(); // 독립 호출 시에만 렌더링 (filterBySector에서는 loadData가 렌더링)
         }
@@ -568,7 +571,7 @@ function renderTable() {
             const fp2 = escapeHtml(d.FP2_CALLSIGN);
 
             return `
-                <tr class="prediction-row ${assessment.riskClass}">
+                <tr class="prediction-row">
                     <td>
                         <div class="callsign-box">
                             <span class="callsign-main">${fp1 || '-'}</span>
@@ -577,11 +580,11 @@ function renderTable() {
                         </div>
                     </td>
                     <td>${escapeHtml(assessment.airlineText)}</td>
-                    <td><span style="color: var(--accent-primary)">${escapeHtml(getSectorName(d.CCP))}</span></td>
-                    <td><span class="tag ${assessment.similarity.tag}">${assessment.similarity.text}</span></td>
-                    <td><span class="tag ${assessment.risk.tag}">${assessment.risk.text}</span></td>
-                    <td><span class="tag ${assessment.action.tag}">${assessment.action.text}</span></td>
-                    <td><span class="prediction-badge">(예측) ${d.HIST_COUNT}회</span></td>
+                    <td><span class="prediction-sector">${escapeHtml(getSectorName(d.CCP))}</span></td>
+                    <td><span class="tag prediction-tag ${assessment.similarity.tag}">${assessment.similarity.text}</span></td>
+                    <td class="prediction-empty">-</td>
+                    <td class="prediction-empty">-</td>
+                    <td><span class="prediction-badge">${d.HIST_COUNT}회 출현</span></td>
                 </tr>
             `;
         }).join('');
@@ -642,7 +645,8 @@ async function openReportModal(idx, fp1, fp2) {
     populateErrorDetailTypes(null); // 세부오류유형 전체 표시로 리셋
     document.getElementById('reportRemark').value = '';
 
-    // 보고자 초기화
+    // 보고자 목록 갱신 후 초기화 (교대 반영)
+    await loadReporters();
     renderReporterSelect();
     document.getElementById('reporterInput').value = '';
 
@@ -707,7 +711,10 @@ function closeModal() {
 }
 
 // 보고서 제출
+let _submitInProgress = false;
 async function submitReport() {
+    if (_submitInProgress) return;
+    _submitInProgress = true;
     const reporter = getReporterValue();
     const ao = document.getElementById('reportAO').value;
     const errorType = document.getElementById('reportType').value;
@@ -715,11 +722,12 @@ async function submitReport() {
 
     if (!reporter) {
         alert('보고자를 선택하거나 입력하세요.');
+        _submitInProgress = false;
         return;
     }
-    if (!ao) { alert('오류 항공기를 선택하세요.'); return; }
-    if (!errorType) { alert('오류 유형을 선택하세요.'); return; }
-    if (!impact) { alert('세부오류유형을 선택하세요.'); return; }
+    if (!ao) { alert('오류 항공기를 선택하세요.'); _submitInProgress = false; return; }
+    if (!errorType) { alert('오류 유형을 선택하세요.'); _submitInProgress = false; return; }
+    if (!impact) { alert('세부오류유형을 선택하세요.'); _submitInProgress = false; return; }
 
     const data = {
         idx: parseInt(document.getElementById('reportIdx').value, 10),
@@ -767,6 +775,8 @@ async function submitReport() {
     } catch (err) {
         console.error('보고서 저장 실패:', err);
         alert('보고 제출 실패: ' + err.message);
+    } finally {
+        _submitInProgress = false;
     }
 }
 
@@ -914,8 +924,7 @@ function startAutoRefresh() {
             return; // 현재 interval 종료, 새 interval이 데이터 로드
         }
 
-        loadControlCounts().then(() => renderSectors());
-        loadData().then(() => renderSectors());
+        Promise.all([loadControlCounts(), loadData()]).then(() => renderSectors());
     }, currentRefreshRate);
 
     console.log(`자동 갱신 시작: ${currentRefreshRate}ms 주기`);

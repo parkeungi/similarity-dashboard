@@ -4,7 +4,41 @@ const oracledb = require('oracledb');
 const db = require('../config/database');
 const { kstToUtc, convertRowsToKst } = require('../config/timeUtil');
 
-const { getCachedSettings, normalizeThresholds } = require('../config/settingsCache');
+const { getCachedSettings, normalizeThresholds, safeErrorMessage } = require('../config/settingsCache');
+
+// 항공사 호출부호 접두어 → 항공사명 캐시
+let airlineCache = null;
+let airlineCacheTime = 0;
+const AIRLINE_CACHE_TTL = 60 * 60 * 1000; // 1시간
+
+async function getAirlineMap() {
+    const now = Date.now();
+    if (airlineCache && (now - airlineCacheTime) < AIRLINE_CACHE_TTL) {
+        return airlineCache;
+    }
+    let conn;
+    try {
+        conn = await db.getConnection();
+        const result = await conn.execute(
+            'SELECT CALLSIGN, AIRLINE_NAME FROM T_AIRLINE WHERE AIRLINE_NAME IS NOT NULL',
+            [], { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+        airlineCache = {};
+        result.rows.forEach(r => { airlineCache[r.CALLSIGN] = r.AIRLINE_NAME; });
+        airlineCacheTime = now;
+        return airlineCache;
+    } catch (err) {
+        console.error('항공사 캐시 로드 실패:', err);
+        return airlineCache || {};
+    } finally {
+        if (conn) await conn.close();
+    }
+}
+
+function extractCallsignPrefix(callsign) {
+    if (!callsign) return '';
+    return callsign.replace(/[0-9].*/, '');
+}
 
 // 유사도 필터 SQL 조건 생성 (바인드 변수 사용)
 function buildSimilarityFilter(binds = {}) {
@@ -39,12 +73,6 @@ function buildSimilarityFilter(binds = {}) {
     }
 }
 
-// 에러 메시지 안전하게 처리 (내부 정보 노출 방지)
-function safeErrorMessage(err) {
-    console.error('Error:', err); // 서버 로그에만 상세 기록
-    return '요청 처리 중 오류가 발생했습니다.';
-}
-
 // 전체 호출부호 데이터 조회 (LEFT JOIN 보고서, 종료 건만, 유사도 설정 적용)
 router.get('/reports', async (req, res) => {
     let conn;
@@ -59,7 +87,15 @@ router.get('/reports', async (req, res) => {
                    c.SIMILARITY, c.SCORE_PEAK, c.CTRL_PEAK, c.COMP_RAT,
                    r.REPORTED, r.REPORTER, r.AO, r.TYPE, r.TYPE_DETAIL, r.REMARK
             FROM T_SIMILAR_CALLSIGN_PAIR c
-            LEFT JOIN T_SIMILAR_CALLSIGN_PAIR_REPORT r ON r.IDX = c.IDX
+            LEFT JOIN (
+                SELECT IDX, REPORTED, REPORTER, AO, TYPE, TYPE_DETAIL, REMARK
+                FROM (
+                    SELECT IDX, REPORTED, REPORTER, AO, TYPE, TYPE_DETAIL, REMARK,
+                           ROW_NUMBER() OVER (PARTITION BY IDX ORDER BY REPORTED DESC) AS RN
+                    FROM T_SIMILAR_CALLSIGN_PAIR_REPORT
+                )
+                WHERE RN = 1
+            ) r ON r.IDX = c.IDX
             WHERE c.CLEARED <> '9999-12-31 23:59:59'
         `;
 
@@ -105,12 +141,16 @@ router.get('/reports', async (req, res) => {
 
         sql += ' ORDER BY c.DETECTED DESC';
 
+        const MAX_ROWS = 10000;
         const result = await conn.execute(sql, binds, {
             outFormat: oracledb.OUT_FORMAT_OBJECT,
-            maxRows: 10000
+            maxRows: MAX_ROWS + 1
         });
 
-        res.json({ success: true, data: convertRowsToKst(result.rows) });
+        const truncated = result.rows.length > MAX_ROWS;
+        const rows = truncated ? result.rows.slice(0, MAX_ROWS) : result.rows;
+
+        res.json({ success: true, data: convertRowsToKst(rows), truncated });
     } catch (err) {
         console.error('데이터 조회 오류:', err);
         res.status(500).json({ success: false, error: safeErrorMessage(err) });
@@ -131,28 +171,36 @@ router.get('/stats', async (req, res) => {
 
         if (from) {
             whereClause += ' AND r.REPORTED >= :startDt';
-            binds.startDt = from;
+            binds.startDt = from.length === 10 ? from + ' 00:00:00' : from;
         }
         if (to) {
             whereClause += ' AND r.REPORTED <= :endDt';
-            binds.endDt = to;
+            const toFull = to.length === 10 ? to + ' 23:59:59' : to;
+            binds.endDt = toFull;
         }
 
-        // 순차 실행 (단일 connection에서 병렬 실행 시 Thick mode 안정성 문제)
-        const typeResult = await conn.execute(`
-            SELECT r.TYPE, COUNT(*) as CNT
+        // byType + byDetail + total을 단일 쿼리로 합산 (테이블 1회 스캔)
+        const combinedResult = await conn.execute(`
+            SELECT r.TYPE, r.TYPE_DETAIL, COUNT(*) as CNT
             FROM T_SIMILAR_CALLSIGN_PAIR_REPORT r
             WHERE ${whereClause}
-            GROUP BY r.TYPE
+            GROUP BY r.TYPE, r.TYPE_DETAIL
         `, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
 
-        const detailResult = await conn.execute(`
-            SELECT r.TYPE_DETAIL, COUNT(*) as CNT
-            FROM T_SIMILAR_CALLSIGN_PAIR_REPORT r
-            WHERE ${whereClause}
-            GROUP BY r.TYPE_DETAIL
-        `, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        // 결과에서 byType, byDetail, total 분리
+        const typeMap = {};
+        const detailMap = {};
+        let total = 0;
+        for (const row of combinedResult.rows) {
+            const cnt = row.CNT;
+            total += cnt;
+            typeMap[row.TYPE] = (typeMap[row.TYPE] || 0) + cnt;
+            detailMap[row.TYPE_DETAIL] = (detailMap[row.TYPE_DETAIL] || 0) + cnt;
+        }
+        const byType = Object.entries(typeMap).map(([TYPE, CNT]) => ({ TYPE, CNT }));
+        const byDetail = Object.entries(detailMap).map(([TYPE_DETAIL, CNT]) => ({ TYPE_DETAIL, CNT }));
 
+        // 섹터별 (JOIN 필요하므로 별도 쿼리)
         const sectorResult = await conn.execute(`
             SELECT c.CCP, COUNT(*) as CNT
             FROM T_SIMILAR_CALLSIGN_PAIR_REPORT r
@@ -162,6 +210,7 @@ router.get('/stats', async (req, res) => {
             ORDER BY c.CCP
         `, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
 
+        // 일별 + 월별을 단일 쿼리로 합산 (일별에서 월별 집계)
         const dailyResult = await conn.execute(`
             SELECT SUBSTR(r.REPORTED, 1, 10) as REPORT_DATE, COUNT(*) as CNT
             FROM T_SIMILAR_CALLSIGN_PAIR_REPORT r
@@ -170,29 +219,25 @@ router.get('/stats', async (req, res) => {
             ORDER BY REPORT_DATE DESC
         `, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
 
-        const monthlyResult = await conn.execute(`
-            SELECT SUBSTR(r.REPORTED, 1, 7) as REPORT_MONTH, COUNT(*) as CNT
-            FROM T_SIMILAR_CALLSIGN_PAIR_REPORT r
-            WHERE ${whereClause}
-            GROUP BY SUBSTR(r.REPORTED, 1, 7)
-            ORDER BY REPORT_MONTH
-        `, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
-
-        const totalResult = await conn.execute(`
-            SELECT COUNT(*) as TOTAL
-            FROM T_SIMILAR_CALLSIGN_PAIR_REPORT r
-            WHERE ${whereClause}
-        `, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        // 일별 결과에서 월별 집계
+        const monthMap = {};
+        for (const row of dailyResult.rows) {
+            const month = row.REPORT_DATE.substring(0, 7);
+            monthMap[month] = (monthMap[month] || 0) + row.CNT;
+        }
+        const byMonth = Object.entries(monthMap)
+            .map(([REPORT_MONTH, CNT]) => ({ REPORT_MONTH, CNT }))
+            .sort((a, b) => a.REPORT_MONTH.localeCompare(b.REPORT_MONTH));
 
         res.json({
             success: true,
             data: {
-                total: totalResult.rows[0]?.TOTAL || 0,
-                byType: typeResult.rows,
-                byDetail: detailResult.rows,
+                total,
+                byType,
+                byDetail,
                 bySector: sectorResult.rows,
                 byDate: dailyResult.rows,
-                byMonth: monthlyResult.rows
+                byMonth
             }
         });
     } catch (err) {
@@ -245,6 +290,49 @@ router.delete('/reports/:idx/:reported', async (req, res) => {
     }
 });
 
+// 보고서 일괄 삭제
+router.post('/reports/batch-delete', async (req, res) => {
+    let conn;
+    try {
+        const { items } = req.body;
+        if (!Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ success: false, error: '삭제할 항목이 없습니다.' });
+        }
+        if (items.length > 200) {
+            return res.status(400).json({ success: false, error: '한 번에 최대 200건까지 삭제할 수 있습니다.' });
+        }
+
+        const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/;
+        conn = await db.getConnection();
+        let deleted = 0;
+        let failed = 0;
+
+        for (const item of items) {
+            const idxNum = parseInt(item.idx);
+            if (isNaN(idxNum) || idxNum <= 0 || !item.reported || !dateTimeRegex.test(item.reported)) {
+                failed++;
+                continue;
+            }
+            const normalizedReported = item.reported.length === 16 ? item.reported + ':00' : item.reported;
+            const result = await conn.execute(`
+                DELETE FROM T_SIMILAR_CALLSIGN_PAIR_REPORT
+                WHERE IDX = :idx AND (REPORTED = :reported OR REPORTED = :reportedAlt)
+            `, { idx: idxNum, reported: normalizedReported, reportedAlt: item.reported });
+            if (result.rowsAffected > 0) deleted++;
+            else failed++;
+        }
+
+        await conn.execute('COMMIT');
+        res.json({ success: true, message: `${deleted}건 삭제 완료` + (failed > 0 ? `, ${failed}건 실패` : ''), deleted, failed });
+    } catch (err) {
+        console.error('일괄 삭제 오류:', err);
+        if (conn) try { await conn.execute('ROLLBACK'); } catch(e) {}
+        res.status(500).json({ success: false, error: safeErrorMessage(err) });
+    } finally {
+        if (conn) await conn.close();
+    }
+});
+
 // 유사호출부호 데이터 현황 조회 (날짜 필터 지원, KST→UTC 변환)
 router.get('/callsign-stats', async (req, res) => {
     let conn;
@@ -290,19 +378,25 @@ router.get('/export-data', async (req, res) => {
         conn = await db.getConnection();
         const { from, to, sector, sectors } = req.query;
 
+        const airlineMap = await getAirlineMap();
+
         let sql = `
             SELECT c.IDX, c.DETECTED, c.CLEARED, c.CCP,
                    c.FP1_CALLSIGN, c.FP1_DEPT, c.FP1_DEST,
                    c.FP2_CALLSIGN, c.FP2_DEPT, c.FP2_DEST,
                    c.AOD_MATCH, c.FID_LEN_MATCH, c.MATCH_POS, c.MATCH_LEN,
                    c.COMP_RAT, c.SIMILARITY, c.CTRL_PEAK, c.SCORE_PEAK, c.MARK,
-                   a1.AIRLINE_NAME AS FP1_AIRLINE,
-                   a2.AIRLINE_NAME AS FP2_AIRLINE,
                    r.REPORTED, r.REPORTER, r.AO, r.TYPE, r.TYPE_DETAIL, r.REMARK
             FROM T_SIMILAR_CALLSIGN_PAIR c
-            LEFT JOIN T_AIRLINE a1 ON a1.CALLSIGN = REGEXP_REPLACE(c.FP1_CALLSIGN, '[0-9].*', '') AND a1.AIRLINE_NAME IS NOT NULL
-            LEFT JOIN T_AIRLINE a2 ON a2.CALLSIGN = REGEXP_REPLACE(c.FP2_CALLSIGN, '[0-9].*', '') AND a2.AIRLINE_NAME IS NOT NULL
-            LEFT JOIN T_SIMILAR_CALLSIGN_PAIR_REPORT r ON r.IDX = c.IDX
+            LEFT JOIN (
+                SELECT IDX, REPORTED, REPORTER, AO, TYPE, TYPE_DETAIL, REMARK
+                FROM (
+                    SELECT IDX, REPORTED, REPORTER, AO, TYPE, TYPE_DETAIL, REMARK,
+                           ROW_NUMBER() OVER (PARTITION BY IDX ORDER BY REPORTED DESC) AS RN
+                    FROM T_SIMILAR_CALLSIGN_PAIR_REPORT
+                )
+                WHERE RN = 1
+            ) r ON r.IDX = c.IDX
             WHERE c.CLEARED <> '9999-12-31 23:59:59'
         `;
 
@@ -332,12 +426,22 @@ router.get('/export-data', async (req, res) => {
 
         sql += ' ORDER BY c.DETECTED DESC';
 
+        const MAX_ROWS = 10000;
         const result = await conn.execute(sql, binds, {
             outFormat: oracledb.OUT_FORMAT_OBJECT,
-            maxRows: 10000
+            maxRows: MAX_ROWS + 1
         });
 
-        res.json({ success: true, data: convertRowsToKst(result.rows) });
+        const truncated = result.rows.length > MAX_ROWS;
+        const sliced = truncated ? result.rows.slice(0, MAX_ROWS) : result.rows;
+
+        const rows = convertRowsToKst(sliced).map(row => ({
+            ...row,
+            FP1_AIRLINE: airlineMap[extractCallsignPrefix(row.FP1_CALLSIGN)] || '',
+            FP2_AIRLINE: airlineMap[extractCallsignPrefix(row.FP2_CALLSIGN)] || ''
+        }));
+
+        res.json({ success: true, data: rows, truncated });
     } catch (err) {
         console.error('Excel 데이터 조회 오류:', err);
         res.status(500).json({ success: false, error: safeErrorMessage(err) });

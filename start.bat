@@ -28,13 +28,14 @@ if not exist "node_modules" (
     exit /b 1
 )
 
-:: 포트 4000 사용 중인지 확인 (이미 실행 중이면 종료)
+:: 포트 4000 사용 중이면 기존 프로세스 종료 후 재시작
 netstat -aon | findstr ":4000 " | findstr "LISTENING" >nul 2>&1
 if %errorlevel% equ 0 (
-    echo [INFO] 포트 4000에서 이미 서버가 실행 중입니다.
-    echo         중복 실행을 방지합니다.
-    timeout /t 3 /nobreak >nul
-    exit /b 0
+    echo [INFO] 포트 4000에서 기존 서버가 실행 중입니다. 종료 후 재시작합니다.
+    for /f "tokens=5" %%p in ('netstat -aon ^| findstr ":4000 " ^| findstr "LISTENING"') do (
+        taskkill /F /PID %%p >nul 2>&1
+    )
+    timeout /t 2 /nobreak >nul
 )
 echo.
 

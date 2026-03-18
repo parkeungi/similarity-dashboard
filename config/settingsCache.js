@@ -3,9 +3,8 @@
 /**
  * settingsCache.js - settings.json 캐싱 모듈
  *
- * 매 HTTP 요청마다 fs.readFileSync 호출을 방지하기 위해
- * 파일 수정시간(mtime) 기반 캐싱 적용.
- * 파일이 변경되지 않으면 메모리 캐시 반환.
+ * fs.watch로 파일 변경 감시, 변경 시에만 비동기 재로드.
+ * 동기 I/O(statSync, readFileSync)를 제거하여 이벤트 루프 블로킹 방지.
  */
 
 const fs = require('fs');
@@ -50,44 +49,76 @@ function normalizeThresholds(thresholds) {
 
 // 캐시 변수
 let _cachedSettings = null;
-let _cachedMtimeMs = 0;
 
-/**
- * settings.json을 mtime 기반 캐싱으로 읽기
- * 파일이 변경되지 않았으면 이전 파싱 결과 반환
- * @returns {Object} 설정 객체
- */
-function getCachedSettings() {
-    try {
-        const stat = fs.statSync(SETTINGS_PATH);
-        const mtimeMs = stat.mtimeMs;
+// 초기 로드 (서버 시작 시 1회, 동기 허용)
+try {
+    _cachedSettings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+} catch (err) {
+    console.error('settings.json 초기 로드 실패:', err.message);
+}
 
-        if (_cachedSettings && mtimeMs === _cachedMtimeMs) {
-            return _cachedSettings;
-        }
-
-        const data = fs.readFileSync(SETTINGS_PATH, 'utf8');
-        _cachedSettings = JSON.parse(data);
-        _cachedMtimeMs = mtimeMs;
-        return _cachedSettings;
-    } catch (err) {
-        console.error('settings.json 읽기 실패:', err.message);
-        return null;
-    }
+// 파일 변경 감시 — 변경 시 비동기 재로드
+let _watchDebounce = null;
+try {
+    fs.watch(SETTINGS_PATH, (eventType) => {
+        if (eventType !== 'change') return;
+        // 디바운스: 짧은 시간 내 중복 이벤트 무시
+        if (_watchDebounce) return;
+        _watchDebounce = setTimeout(() => {
+            _watchDebounce = null;
+            fs.readFile(SETTINGS_PATH, 'utf8', (err, data) => {
+                if (err) {
+                    console.error('settings.json 재로드 실패:', err.message);
+                    return;
+                }
+                try {
+                    _cachedSettings = JSON.parse(data);
+                } catch (parseErr) {
+                    console.error('settings.json 파싱 실패:', parseErr.message);
+                }
+            });
+        }, 100);
+    });
+} catch (err) {
+    console.error('settings.json watch 실패:', err.message);
 }
 
 /**
- * 캐시 무효화 (설정 저장 후 호출)
+ * 에러 메시지 안전하게 처리 (내부 정보 노출 방지)
+ * @param {Error} err - 에러 객체
+ * @returns {string} 안전한 에러 메시지
+ */
+function safeErrorMessage(err) {
+    console.error('Error:', err); // 서버 로그에만 상세 기록
+    return '요청 처리 중 오류가 발생했습니다.';
+}
+
+/**
+ * 캐시된 설정 반환 (블로킹 없음)
+ * @returns {Object} 설정 객체
+ */
+function getCachedSettings() {
+    return _cachedSettings;
+}
+
+/**
+ * 캐시 무효화 (설정 저장 후 즉시 반영)
  */
 function invalidateCache() {
-    _cachedSettings = null;
-    _cachedMtimeMs = 0;
+    try {
+        const data = fs.readFileSync(SETTINGS_PATH, 'utf8');
+        _cachedSettings = JSON.parse(data);
+    } catch (err) {
+        console.error('settings.json 캐시 무효화 실패:', err.message);
+        _cachedSettings = null;
+    }
 }
 
 module.exports = {
     getCachedSettings,
     invalidateCache,
     normalizeThresholds,
+    safeErrorMessage,
     DEFAULT_THRESHOLDS,
     SETTINGS_PATH
 };
