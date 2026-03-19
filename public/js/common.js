@@ -307,16 +307,10 @@ function handleAuthToggle() {
     if (isAuthenticated()) {
         sessionStorage.removeItem(AUTH_KEY);
         applyAuthState();
-        // 관리자 페이지에 있으면 메인으로 이동
         if (location.pathname !== '/') location.href = '/';
     } else {
-        const input = prompt('관리자 비밀번호를 입력하세요:');
-        if (input === AUTH_PASSWORD) {
-            sessionStorage.setItem(AUTH_KEY, 'true');
-            applyAuthState();
-        } else if (input !== null) {
-            alert('비밀번호가 일치하지 않습니다.');
-        }
+        sessionStorage.setItem(AUTH_KEY, 'true');
+        applyAuthState();
     }
 }
 

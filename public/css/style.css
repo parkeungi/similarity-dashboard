@@ -490,9 +490,9 @@ body {
 
 #airline-table th,
 #airline-table td {
-    padding: 6px 4px;
+    padding: 7px 6px;
     white-space: nowrap;
-    font-size: 11px;
+    font-size: 13px;
 }
 
 table {
@@ -908,6 +908,13 @@ input[type="checkbox"] {
 /* Admin Layout (메인 + 사이드바) */
 .admin-layout {
     display: block;
+}
+
+.reports-body {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 20px;
+    align-items: start;
 }
 
 

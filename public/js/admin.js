@@ -469,8 +469,8 @@ function getScoreGrade(val) {
 function getRecommendation(similarity, scorePeak) {
     const band = getRecommendationBand(similarity, scorePeak);
     if (band === 'critical') return '즉시조치';
-    if (band === 'caution') return '주의감시';
-    return '일반감시';
+    if (band === 'caution') return '주의관찰';
+    return '정상감시';
 }
 
 // 검출 목록 섹터 필터 (테이블만 필터링, API 재호출 없음)
