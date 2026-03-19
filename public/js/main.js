@@ -584,7 +584,7 @@ function renderTable() {
                     <td><span class="tag prediction-tag ${assessment.similarity.tag}">${assessment.similarity.text}</span></td>
                     <td class="prediction-empty">-</td>
                     <td class="prediction-empty">-</td>
-                    <td><span class="prediction-badge">${d.HIST_COUNT}회 출현</span></td>
+                    <td><span class="prediction-badge">${d.HIST_COUNT}회 검출</span></td>
                 </tr>
             `;
         }).join('');
@@ -914,17 +914,21 @@ function startAutoRefresh() {
     currentRefreshRate = SERVER_CONFIG.refreshRate;
 
     refreshInterval = setInterval(async () => {
-        const oldRate = SERVER_CONFIG.refreshRate;
-        await loadServerConfig(); // 설정 변경 감지
+        try {
+            const oldRate = SERVER_CONFIG.refreshRate;
+            await loadServerConfig(); // 설정 변경 감지
 
-        // refreshRate가 변경되면 interval 재생성
-        if (SERVER_CONFIG.refreshRate !== oldRate) {
-            console.log(`갱신 주기 변경: ${oldRate}ms → ${SERVER_CONFIG.refreshRate}ms`);
-            startAutoRefresh();
-            return; // 현재 interval 종료, 새 interval이 데이터 로드
+            // refreshRate가 변경되면 interval 재생성
+            if (SERVER_CONFIG.refreshRate !== oldRate) {
+                console.log(`갱신 주기 변경: ${oldRate}ms → ${SERVER_CONFIG.refreshRate}ms`);
+                startAutoRefresh();
+                return; // 현재 interval 종료, 새 interval이 데이터 로드
+            }
+
+            Promise.all([loadControlCounts(), loadData()]).then(() => renderSectors());
+        } catch (err) {
+            console.warn('자동 갱신 실패 (서버 복구 시 자동 재개):', err.message);
         }
-
-        Promise.all([loadControlCounts(), loadData()]).then(() => renderSectors());
     }, currentRefreshRate);
 
     console.log(`자동 갱신 시작: ${currentRefreshRate}ms 주기`);

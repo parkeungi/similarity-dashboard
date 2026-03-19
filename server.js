@@ -98,7 +98,15 @@ app.use((req, res, next) => {
 
 // 미들웨어
 app.use(express.json({ limit: '1mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+    etag: false,
+    lastModified: false,
+    setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+}));
 app.use('/tools', express.static(path.join(__dirname, 'tools')));
 
 // 같은 서버에서 서빙하므로 CORS 불필요 (폐쇄망 단일서버)

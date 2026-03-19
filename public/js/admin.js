@@ -1850,12 +1850,21 @@ function changeAirlinePageSize() {
     renderAirlineTable();
 }
 
+// 날짜 문자열("YYYY-MM-DD HH:mm:ss")을 Excel 시리얼넘버로 변환
+function dateToExcelSerial(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr.replace(' ', 'T'));
+    if (isNaN(d.getTime())) return dateStr;
+    // Excel epoch: 1899-12-30, 1일 = 86400000ms
+    const EXCEL_EPOCH = new Date(1899, 11, 30).getTime();
+    return (d.getTime() - EXCEL_EPOCH) / 86400000;
+}
+
 async function exportAirlineExcel() {
     if (AIRLINE_DATA.length === 0) {
         alert('먼저 검색을 실행해주세요.');
         return;
     }
-    // 기존 downloadExcel 로직 재사용 (AIRLINE_DATA 기반)
     if (typeof XLSX === 'undefined') {
         alert('Excel 내보내기 라이브러리를 불러올 수 없습니다.');
         return;
@@ -1870,8 +1879,8 @@ async function exportAirlineExcel() {
         const hasReport = r.REPORTED ? true : false;
 
         return {
-            '시작일시(KST)': r.DETECTED || '',
-            '종료일시(KST)': r.CLEARED || '',
+            '시작일시(KST)': dateToExcelSerial(r.DETECTED),
+            '종료일시(KST)': dateToExcelSerial(r.CLEARED),
             '관할섹터명': getSectorName(r.CCP),
             '편명1': fp1,
             '출발공항1': r.FP1_DEPT || '',
@@ -1892,9 +1901,9 @@ async function exportAirlineExcel() {
             '공존시간(분)': calcCoexistMinutes(r.DETECTED, r.CLEARED),
             '오류발생가능성': r.SCORE_PEAK ?? '',
             '오류발생가능성_등급': getScoreGrade(r.SCORE_PEAK),
-            '관제사권고사항': getRecommendation(r.SIMILARITY, r.SCORE_PEAK),
             '보고여부': Number(r.MARK) === 1 ? 'O' : '',
-            '보고일시(KST)': r.REPORTED || '',
+            '관제사권고사항': getRecommendation(r.SIMILARITY, r.SCORE_PEAK),
+            '보고일시(KST)': dateToExcelSerial(r.REPORTED),
             '보고자': r.REPORTER || '',
             '혼돈편명': hasReport ? (r.AO === 1 ? fp1 : r.AO === 2 ? fp2 : r.AO === 3 ? fp1 + ', ' + fp2 : '') : '',
             '오류유형': hasReport ? (TYPE_MAP[r.TYPE] || String(r.TYPE || '')) : '',
@@ -1907,6 +1916,20 @@ async function exportAirlineExcel() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '유사호출부호데이터');
 
+    // 날짜 셀에 서식 적용 (시리얼넘버 → 날짜 표시)
+    const dateFormat = 'yyyy-mm-dd hh:mm:ss';
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for (let R = range.s.r + 1; R <= range.e.r; R++) {
+        // col 0: 시작일시, col 1: 종료일시, col 24: 보고일시
+        [0, 1, 24].forEach(C => {
+            const addr = XLSX.utils.encode_cell({ r: R, c: C });
+            if (ws[addr] && typeof ws[addr].v === 'number') {
+                ws[addr].t = 'n';
+                ws[addr].z = dateFormat;
+            }
+        });
+    }
+
     ws['!cols'] = [
         { wch: 20 }, { wch: 20 }, { wch: 12 },
         { wch: 12 }, { wch: 8 }, { wch: 8 },
@@ -1916,7 +1939,7 @@ async function exportAirlineExcel() {
         { wch: 18 }, { wch: 18 }, { wch: 24 },
         { wch: 12 }, { wch: 14 }, { wch: 12 },
         { wch: 18 }, { wch: 18 },
-        { wch: 8 }, { wch: 14 },
+        { wch: 8 }, { wch: 20 },
         { wch: 20 }, { wch: 8 }, { wch: 12 },
         { wch: 12 }, { wch: 14 }, { wch: 30 }
     ];
