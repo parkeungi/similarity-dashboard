@@ -1272,20 +1272,20 @@ tr.prediction-separator td {
 }
 
 tr.prediction-row {
-    opacity: 0.75;
+    opacity: 0.45;
     border-left: 3px solid #8b5cf6 !important;
-    background: rgba(139, 92, 246, 0.06);
+    background: rgba(139, 92, 246, 0.04);
 }
 
 tr.prediction-row:hover {
-    opacity: 0.9;
-    background: rgba(139, 92, 246, 0.12);
+    opacity: 0.65;
+    background: rgba(139, 92, 246, 0.08);
     cursor: default;
 }
 
 /* 예측 행 내 텍스트 색상 */
 tr.prediction-row td {
-    color: #c4b5fd;
+    color: #a78bfa;
 }
 
 tr.prediction-row .callsign-main {
