@@ -1739,6 +1739,45 @@ function applyAirlineSectorFilter() {
     renderAirlineTable();
 }
 
+/**
+ * 항공기 쌍의 FP1/FP2를 알파벳 오름차순으로 정규화
+ * - FP1_CALLSIGN > FP2_CALLSIGN 이면 FP1/FP2 관련 필드 전체를 교환
+ * - AO(오류항공기) 값도 함께 반전: 1↔2, 3 유지
+ * @param {Object} r - export-data 행 원본
+ * @returns {Object} 정규화된 행
+ */
+// 항공사 보고자료 목록·엑셀 반출 전용: 국내 항공사 ICAO 접두어 집합
+const DOMESTIC_PREFIXES = new Set(['KAL','AAR','JJA','JNA','TWB','ABL','ASV','APZ','ESR','EOK','AIH','PTA']);
+
+/**
+ * 두 호출부호의 정렬 우선순위 비교
+ * 국내 항공사(0) < 외항사(1), 같은 그룹 내에서는 알파벳 오름차순
+ * @param {string} a
+ * @param {string} b
+ * @returns {number} 음수=a가 앞, 양수=b가 앞, 0=동일
+ */
+function compareCallsignOrder(a, b) {
+    const pa = extractAirlinePrefix(a);
+    const pb = extractAirlinePrefix(b);
+    const da = DOMESTIC_PREFIXES.has(pa) ? 0 : 1;
+    const db = DOMESTIC_PREFIXES.has(pb) ? 0 : 1;
+    if (da !== db) return da - db;
+    return a <= b ? -1 : 1;
+}
+
+function normalizeAirlineRow(r) {
+    const fp1 = r.FP1_CALLSIGN || '';
+    const fp2 = r.FP2_CALLSIGN || '';
+    if (compareCallsignOrder(fp1, fp2) <= 0) return r;
+    const ao = r.AO;
+    return {
+        ...r,
+        FP1_CALLSIGN: fp2, FP1_DEPT: r.FP2_DEPT, FP1_DEST: r.FP2_DEST, FP1_AIRLINE: r.FP2_AIRLINE,
+        FP2_CALLSIGN: fp1, FP2_DEPT: r.FP1_DEPT, FP2_DEST: r.FP1_DEST, FP2_AIRLINE: r.FP1_AIRLINE,
+        AO: ao === 1 ? 2 : ao === 2 ? 1 : ao
+    };
+}
+
 async function loadAirlineData() {
     const from = document.getElementById('airline-from').value;
     const to = document.getElementById('airline-to').value;
@@ -1749,7 +1788,7 @@ async function loadAirlineData() {
         const resp = await fetch(url);
         const result = await resp.json();
         if (!result.success) { alert('데이터 조회 실패'); return; }
-        AIRLINE_DATA_RAW = filterReportsBySimilarity(result.data || []);
+        AIRLINE_DATA_RAW = filterReportsBySimilarity(result.data || []).map(normalizeAirlineRow);
         applyAirlineSectorFilter();
     } catch (err) {
         console.error('항공사 데이터 조회 오류:', err);
@@ -1870,7 +1909,24 @@ async function exportAirlineExcel() {
         return;
     }
 
-    const rows = AIRLINE_DATA;
+    // 매우높음/높음만 필터 + 중복 제거 (편명1+편명2 기준)
+    const filtered = AIRLINE_DATA.filter(r => {
+        const band = getSimilarityBand(r.SIMILARITY);
+        return band === 'critical' || band === 'caution';
+    });
+    const seen = new Set();
+    const rows = filtered.filter(r => {
+        const key = (r.FP1_CALLSIGN || '') + '|' + (r.FP2_CALLSIGN || '');
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+
+    if (rows.length === 0) {
+        alert('매우높음/높음 등급의 데이터가 없습니다.');
+        return;
+    }
+
     const excelData = rows.map(r => {
         const fp1 = r.FP1_CALLSIGN || '';
         const fp2 = r.FP2_CALLSIGN || '';
