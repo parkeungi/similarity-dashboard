@@ -28,3 +28,6 @@ Thumbs.db
 # Windows reserved names
 nul
 NUL
+
+# Deploy folder (배포용 파일 복사본, git 제외)
+deploy/

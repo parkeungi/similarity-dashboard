@@ -169,3 +169,43 @@ Dark glassmorphism 테마 — 새 UI 요소 추가 시 기존 변수 사용:
 | 관제사 | `/` | 실시간 유사호출부호 경고 + 보고 |
 | 관리자 | `/admin` | 보고서 조회, 통계, 설정 |
 | 이력 | `/history` | 검출 이력 조회 |
+
+---
+
+## Deploy 규칙
+
+### deploy/ 폴더
+
+- 위치: `similar_dashboard/deploy/` (git 제외, `.gitignore` 등록됨)
+- 용도: 배포 대상 파일만 모아두는 복사본 폴더 (실제 서버에 덮어쓰기용)
+- 구조: 프로젝트 루트 기준 **동일한 상대경로** 유지
+  ```
+  deploy/
+  └── public/
+      ├── admin.html
+      ├── index.html
+      ├── history.html
+      ├── js/
+      │   ├── admin.js
+      │   ├── main.js
+      │   ├── history.js
+      │   └── common.js
+      └── css/
+          └── style.css
+  ```
+
+### 파일 수정 후 필수 작업
+
+`public/` 또는 `routes/` 파일을 수정한 작업이 끝나면, **마지막 단계로 반드시** 수정한 파일을 deploy 폴더에 복사한다:
+
+```bash
+# 예시: public/js/admin.js 수정 후
+cp public/js/admin.js deploy/public/js/admin.js
+
+# 예시: public/admin.html 수정 후
+cp public/admin.html deploy/public/admin.html
+```
+
+- 서버 파일(`server.js`, `routes/*.js`, `config/*.js`)은 변경 시 해당 경로 그대로 deploy/ 하위에 복사
+- `config/database.js`, `config/settings.json`은 민감정보 포함 — **복사 제외**
+- `.claude/`, `node_modules/`, `deploy/` 자체는 복사 대상 아님
