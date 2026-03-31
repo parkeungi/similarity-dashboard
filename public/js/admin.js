@@ -292,11 +292,18 @@ function renderReports() {
 
     // 유사도 등급 필터 적용
     FILTERED_REPORTS = filterReportsBySimilarity(REPORTS_DATA);
+
+    // 보고자 입력된 것만 필터 — FILTERED_REPORTS 자체를 갱신하여 data-index 기반 참조 일관성 유지
+    const onlyReported = document.getElementById('filter-reported-only')?.checked ?? true;
+    if (onlyReported) {
+        FILTERED_REPORTS = FILTERED_REPORTS.filter(r => r.REPORTER && r.REPORTER.trim() !== '');
+    }
     const filtered = FILTERED_REPORTS;
+
     document.getElementById('report-count').textContent = filtered.length;
 
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">조회된 항목이 없습니다</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="empty-state">조회된 항목이 없습니다</td></tr>';
         return;
     }
 
@@ -313,6 +320,13 @@ function renderReports() {
 
         // 검출시각: MM-DD HH:MM 형태로 축약 표시
         const detected = r.DETECTED ? r.DETECTED.substring(5, 16) : '-';
+
+        const reporterCell = r.REPORTER
+            ? escapeHtml(r.REPORTER)
+            : '<span style="color:var(--text-muted);">-</span>';
+        const remarkCell = (r.REMARK && r.REMARK !== '-')
+            ? `<span title="${escapeHtml(r.REMARK)}" style="max-width:120px; display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle;">${escapeHtml(r.REMARK)}</span>`
+            : '<span style="color:var(--text-muted);">-</span>';
 
         return `
             <tr data-index="${index}" style="cursor: pointer;">
@@ -331,6 +345,8 @@ function renderReports() {
                 <td>${reportTag}</td>
                 <td>${hasReport ? '<span class="tag ' + typeClass + '">' + escapeHtml(TYPE_MAP[r.TYPE] || '-') + '</span>' : '<span style="color:var(--text-muted);">-</span>'}</td>
                 <td>${hasReport ? '<span class="tag tag-info">' + escapeHtml(IMPACT_MAP[r.TYPE_DETAIL] || '-') + '</span>' : '<span style="color:var(--text-muted);">-</span>'}</td>
+                <td style="font-size: 12px;">${reporterCell}</td>
+                <td style="font-size: 12px; max-width: 120px;">${remarkCell}</td>
             </tr>
         `;
     }).join('');
@@ -357,6 +373,8 @@ function resetFilter() {
     document.getElementById('filter-type').value = '';
     document.getElementById('filter-detail').value = '';
     document.getElementById('filter-reported').value = '';
+    const reportedOnly = document.getElementById('filter-reported-only');
+    if (reportedOnly) reportedOnly.checked = true;
     // 섹터를 설정 기본값으로 복원
     loadSectors();
     loadReports();

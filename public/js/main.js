@@ -93,22 +93,20 @@ function populateErrorTypes() {
 function populateErrorDetailTypes(parentType) {
     const select = document.getElementById('safetyImpact');
     if (!select) return;
-    const allTypes = SERVER_CONFIG.errorDetailTypes || [];
 
-    // parentType이 지정되면 해당 유형 + 공통(parentType=0)만 표시
-    const filtered = parentType != null
-        ? allTypes.filter(t => t.parentType === parentType || t.parentType === 0 || !t.parentType)
-        : allTypes;
-
-    select.innerHTML = filtered.map(t => `<option value="${t.value}">${escapeHtml(t.label)}</option>`).join('');
-
-    // 오류유형 선택 시 첫 번째 항목 자동 선택, 미선택 시 placeholder
-    if (parentType != null && filtered.length > 0) {
-        select.value = filtered[0].value;
-    } else {
-        select.innerHTML = '<option value="">선택하세요</option>' + select.innerHTML;
+    // 오류유형 미선택 시 세부오류유형 비우기
+    if (parentType == null) {
+        select.innerHTML = '<option value="">선택하세요</option>';
         select.value = '';
+        return;
     }
+
+    const allTypes = SERVER_CONFIG.errorDetailTypes || [];
+    const filtered = allTypes.filter(t => t.parentType === parentType || t.parentType === 0 || !t.parentType);
+
+    select.innerHTML = '<option value="">선택하세요</option>' +
+        filtered.map(t => `<option value="${t.value}">${escapeHtml(t.label)}</option>`).join('');
+    select.value = '';
 }
 
 // ==================== 항공사 매핑 (main.js 전용) ====================
