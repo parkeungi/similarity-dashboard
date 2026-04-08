@@ -1933,7 +1933,10 @@ async function exportAirlineExcel() {
         return band === 'critical' || band === 'caution' || (r.REPORTER && r.REPORTER.trim() !== '');
     });
 
-    // 중복 제거 (편명1+편명2 기준): 보고자 있는 행 우선 보존 → 같은 편명쌍이 여러 번 검출돼도 보고 정보 유실 방지
+    // 중복 제거 (날짜+섹터+편명쌍 기준):
+    //   - 같은 날짜·같은 섹터·같은 편명쌍 → 1건만 (보고자 있는 행 우선)
+    //   - 날짜가 다르면 별도 행으로 모두 포함
+    //   - FP1/FP2 순서는 normalizeAirlineRow()로 이미 정규화됨 (국내 우선·알파벳순)
     const sorted = [...filtered].sort((a, b) => {
         const aR = (a.REPORTER && a.REPORTER.trim()) ? 1 : 0;
         const bR = (b.REPORTER && b.REPORTER.trim()) ? 1 : 0;
@@ -1941,7 +1944,8 @@ async function exportAirlineExcel() {
     });
     const seen = new Set();
     const rows = sorted.filter(r => {
-        const key = (r.FP1_CALLSIGN || '') + '|' + (r.FP2_CALLSIGN || '');
+        const date = (r.DETECTED || '').substring(0, 10); // YYYY-MM-DD
+        const key = date + '|' + (r.CCP || '') + '|' + (r.FP1_CALLSIGN || '') + '|' + (r.FP2_CALLSIGN || '');
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
