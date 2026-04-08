@@ -1951,6 +1951,9 @@ async function exportAirlineExcel() {
         return true;
     });
 
+    // 시작일시 오름차순 정렬
+    rows.sort((a, b) => (a.DETECTED || '').localeCompare(b.DETECTED || ''));
+
     if (rows.length === 0) {
         alert('매우높음/높음 등급의 데이터가 없습니다.');
         return;
