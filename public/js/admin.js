@@ -1927,13 +1927,20 @@ async function exportAirlineExcel() {
         return;
     }
 
-    // 매우높음/높음만 필터 + 보고자 있는 행은 등급 무관 포함 + 중복 제거 (편명1+편명2 기준)
+    // 매우높음/높음만 필터 + 보고자 있는 행은 등급 무관 포함
     const filtered = AIRLINE_DATA.filter(r => {
         const band = getSimilarityBand(r.SIMILARITY);
         return band === 'critical' || band === 'caution' || (r.REPORTER && r.REPORTER.trim() !== '');
     });
+
+    // 중복 제거 (편명1+편명2 기준): 보고자 있는 행 우선 보존 → 같은 편명쌍이 여러 번 검출돼도 보고 정보 유실 방지
+    const sorted = [...filtered].sort((a, b) => {
+        const aR = (a.REPORTER && a.REPORTER.trim()) ? 1 : 0;
+        const bR = (b.REPORTER && b.REPORTER.trim()) ? 1 : 0;
+        return bR - aR; // 보고자 있는 행 먼저
+    });
     const seen = new Set();
-    const rows = filtered.filter(r => {
+    const rows = sorted.filter(r => {
         const key = (r.FP1_CALLSIGN || '') + '|' + (r.FP2_CALLSIGN || '');
         if (seen.has(key)) return false;
         seen.add(key);
