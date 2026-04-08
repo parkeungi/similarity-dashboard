@@ -388,7 +388,7 @@ function resetFilter() {
  */
 function setDatePreset(period) {
     // 버튼 활성 상태 업데이트
-    document.querySelectorAll('.btn-preset').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.btn-preset[data-period]').forEach(btn => btn.classList.remove('active'));
     const activeBtn = document.querySelector(`.btn-preset[data-period="${period}"]`);
     if (activeBtn) activeBtn.classList.add('active');
 
